@@ -1,152 +1,185 @@
-// app/match/MatchRequestsScreen.jsx
-
 import { useEffect, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   Image,
   TouchableOpacity,
+  FlatList,
   ActivityIndicator,
+  Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../contexts/AuthContext";
 import { useRouter } from "expo-router";
-import SwipeableNotification from "../../components/SwipeableNotification";
+import { Swipeable } from "react-native-gesture-handler";
 
-const API = "https://yummyum-backend.vercel.app/api";
+const API = "https://yummy-backend-fxib.onrender.com";
 
-// ⏱ Instagram stil timeAgo
-function timeAgo(dateString) {
+/* -----------------------------
+   ⏱ Time Ago
+------------------------------ */
+function formatTime(dateString) {
   const d = new Date(dateString);
-  const diffMs = Date.now() - d.getTime();
-  const mins = Math.floor(diffMs / 60000);
+  const now = new Date();
+  const diff = (now - d) / 60000;
 
-  if (mins < 1) return "Az önce";
-  if (mins < 60) return `${mins} dk`;
+  if (diff < 1) return "Az önce";
+  if (diff < 60) return `${Math.floor(diff)} dakika önce`;
+  if (diff < 1440) return `${Math.floor(diff / 60)} saat önce`;
 
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} sa`;
+  const days = Math.floor(diff / 1440);
+  if (days === 1) return "Dün";
 
-  const days = Math.floor(hours / 24);
-  return `${days} gün`;
+  return `${days} gün önce`;
 }
 
+/* -----------------------------
+   📌 Gruba ayır (BUGÜN / DÜN / DAHA ÖNCE)
+------------------------------ */
+function groupByDate(list) {
+  const today = [];
+  const yesterday = [];
+  const earlier = [];
+
+  const now = new Date();
+  const t = now.getDate();
+  const y = t - 1;
+
+  list.forEach((item) => {
+    const d = new Date(item.createdat).getDate();
+
+    if (d === t) today.push(item);
+    else if (d === y) yesterday.push(item);
+    else earlier.push(item);
+  });
+
+  return { today, yesterday, earlier };
+}
+
+/* -----------------------------
+   🔥 Swipeable Delete
+------------------------------ */
+const RightDelete = ({ dragX, onDelete }) => {
+  const scale = dragX.interpolate({
+    inputRange: [-100, 0],
+    outputRange: [1, 0],
+    extrapolate: "clamp",
+  });
+
+  return (
+    <TouchableOpacity style={styles.deleteBox} onPress={onDelete}>
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <Ionicons name="trash" size={28} color="#fff" />
+      </Animated.View>
+    </TouchableOpacity>
+  );
+};
+
+/* -----------------------------
+   🔥 Notification Item
+------------------------------ */
+const NotificationItem = ({ item, onPress, onDelete }) => {
+  return (
+    <Swipeable
+      renderRightActions={(progress, dragX) => (
+        <RightDelete dragX={dragX} onDelete={onDelete} />
+      )}
+    >
+      <TouchableOpacity style={styles.item} onPress={onPress}>
+        <Image
+          source={{
+            uri:
+              item.sender_photo ||
+              "https://cdn-icons-png.flaticon.com/512/847/847969.png",
+          }}
+          style={styles.avatar}
+        />
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.senderName}>{item.sender_name}</Text>
+          <Text style={styles.message}>sana bir öğün eşleşme isteği gönderdi 🍽️</Text>
+          <Text style={styles.time}>{formatTime(item.createdat)}</Text>
+        </View>
+
+        {!item.is_read && <View style={styles.unreadDot} />}
+      </TouchableOpacity>
+    </Swipeable>
+  );
+};
+
+/* -----------------------------
+   🧨 SCREEN
+------------------------------ */
 export default function MatchRequestsScreen() {
   const { user } = useAuth();
   const router = useRouter();
 
-  const [requests, setRequests] = useState([]);
+  const [list, setList] = useState([]);
+  console.log("_____________________________Bildirim Full List:",list);
   const [loading, setLoading] = useState(true);
 
-  // 🔥 Talepleri getir
-  const fetchRequests = async () => {
+  /* -----------------------------
+      🔥 Bildirimleri Çek
+  ------------------------------ */
+  const load = async () => {
     try {
-      console.log(`https://yummyum-backend.vercel.app/apimatch?user_id=${user.id}`);
-      const res = await fetch(`${API}/match?user_id=${user.id}`);
+      const res = await fetch(`${API}/match/received`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+
       const data = await res.json();
-      console.log("BİLDİRİM SAYFASI DATAaa------------------:",data);
-      // --- VERİ NORMALİZASYONU ---
-      const normalized = data.map((i) => ({
-        id: i.id,
-        from_user_id: i.from_user_id,
-        to_user_id: i.to_user_id,
-        meal_id: i.meal_id,
 
-        sender_name: i.sender_name || "Kullanıcı",
-        sender_photo:
-          i.sender_photo ||
-          i.photo_url ||
-          "https://cdn-icons-png.flaticon.com/512/847/847969.png",
-
-        createdat: i.createdat,
-        timeAgo: timeAgo(i.createdat),
-
-        meal_name: i.meal_name,
-        meal_image: i.meal_image,
-      }));
-
-      setRequests(normalized);
+      setList(data);
     } catch (err) {
-      console.log("Request fetch error:", err);
+      console.log("NOTIF ERROR:", err);
     } finally {
       setLoading(false);
     }
   };
 
-  // 🔥 Kabul et
-  const acceptRequest = async (item) => {
+  /* -----------------------------
+      🗑 Sil
+  ------------------------------ */
+  const deleteItem = async (id) => {
     try {
-      await fetch(`${API}/match`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          request_id: item.id,
-          from_user_id: item.from_user_id,
-          to_user_id: item.to_user_id,
-          meal_id: item.meal_id,
-        }),
+      await fetch(`${API}/match/reject`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${user.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ request_id: id }),
       });
 
-      setRequests((prev) => prev.filter((x) => x.id !== item.id));
+      setList((prev) => prev.filter((x) => x.id !== id));
     } catch (err) {
-      console.log("ACCEPT ERROR:", err);
-    }
-  };
-
-  // 🔥 Sil / Reddet
-  const deleteRequest = async (item) => {
-    try {
-      await fetch(`${API}/match?request_id=${item.id}`, { method: "DELETE" });
-
-      setRequests((prev) => prev.filter((x) => x.id !== item.id));
-    } catch (err) {
-      console.log("DELETE ERROR:", err);
+      console.log(err);
     }
   };
 
   useEffect(() => {
-    fetchRequests();
+    load();
   }, []);
 
-  // LOADING
-  if (loading) {
+  if (loading)
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#FF5C4D" />
       </View>
     );
-  }
 
-  // EMPTY
-  if (requests.length === 0) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={24} color="#111" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Bildirimler</Text>
-          <View style={{ width: 24 }} />
-        </View>
+  /* -----------------------------
+      ✨ Grup Ayır
+  ------------------------------ */
+  const { today, yesterday, earlier } = groupByDate(list);
 
-        <View style={styles.emptyWrapper}>
-          <Image
-            source={{
-              uri: "https://cdn-icons-png.flaticon.com/512/711/711284.png",
-            }}
-            style={styles.emptyImg}
-          />
-          <Text style={styles.emptyTitle}>Henüz bildirimin yok</Text>
-          <Text style={styles.emptySub}>
-            Öğün ekleyerek eşleşme isteği alabilirsin.
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const groups = [
+    { title: "BUGÜN", data: today },
+    { title: "DÜN", data: yesterday },
+    { title: "DAHA ÖNCE", data: earlier },
+  ];
 
   return (
     <SafeAreaView style={styles.container}>
@@ -155,55 +188,101 @@ export default function MatchRequestsScreen() {
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#111" />
         </TouchableOpacity>
-
         <Text style={styles.headerTitle}>Bildirimler</Text>
-
         <View style={{ width: 24 }} />
       </View>
 
-     <FlatList
-        data={requests}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <SwipeableNotification
-            item={item}
-            onDelete={deleteRequest}
-            onAccept={acceptRequest}
-            onPress={() => router.push(`/meal/${item.meal_id}`)}
-          />
-        )}
-        contentContainerStyle={{ padding: 16, paddingBottom: 150 }}
+      <FlatList
+        data={groups}
+        keyExtractor={(g) => g.title}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        renderItem={({ item }) =>
+          item.data.length > 0 && (
+            <View style={styles.groupBox}>
+              <Text style={styles.groupTitle}>{item.title}</Text>
+
+              {item.data.map((n) => (
+                console.log("__________N",n),
+                <NotificationItem
+                  key={n.id}
+                  item={n}
+                  onPress={() =>
+                    router.push({
+                      pathname: `/meal/${n.sender_meal_id}`,
+                      params: { requestId: n.id }
+                    })
+                  }
+                  onDelete={() => deleteItem(n.id)}
+                />
+              ))}
+            </View>
+          )
+        }
       />
     </SafeAreaView>
   );
 }
 
-/* ========= STYLES ========= */
+/* -----------------------------
+   🎨 STYLES
+------------------------------ */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
 
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
 
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingVertical: 12,
+    flexDirection: "row",
+    justifyContent: "space-between",
     borderBottomWidth: 1,
-    borderBottomColor: "#EEE",
+    borderColor: "#EEE",
   },
 
   headerTitle: { fontSize: 20, fontWeight: "700", color: "#111" },
 
-  emptyWrapper: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
+  /* Groups */
+  groupBox: { paddingHorizontal: 16, paddingVertical: 12 },
+  groupTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#777",
+    marginBottom: 10,
   },
 
-  emptyImg: { width: 130, height: 130, marginBottom: 20, opacity: 0.8 },
-  emptyTitle: { fontSize: 20, fontWeight: "700", color: "#333" },
-  emptySub: { color: "#777", marginTop: 4 },
+  /* Item */
+  item: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+
+  avatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 12,
+  },
+
+  senderName: { fontSize: 15, fontWeight: "700", color: "#111" },
+  message: { fontSize: 13, color: "#555" },
+  time: { fontSize: 11, color: "#999", marginTop: 4 },
+
+  unreadDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#FF4E4E",
+    marginLeft: 10,
+  },
+
+  deleteBox: {
+    backgroundColor: "#FF3B30",
+    justifyContent: "center",
+    alignItems: "center",
+    width: 70,
+    marginVertical: 4,
+    borderRadius: 8,
+  },
 });

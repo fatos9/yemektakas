@@ -36,23 +36,9 @@ export default function Home() {
   const slideAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  const openPremium = () => {
-    setPremiumVisible(true);
-    Animated.timing(slideAnim, {
-      toValue: 1,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const closePremium = () => {
-    Animated.timing(slideAnim, {
-      toValue: 0,
-      duration: 250,
-      useNativeDriver: true,
-    }).start(() => setPremiumVisible(false));
-  };
-
+  // ---------------------------------------------------
+  // KATEGORİLERİ ÇEK
+  // ---------------------------------------------------
   const fetchCategories = async () => {
     try {
       const res = await fetch(api.categories);
@@ -63,26 +49,34 @@ export default function Home() {
     }
   };
 
+  // ---------------------------------------------------
+  // ÖĞÜNLERİ ÇEK — kendi öğünlerini filtrele
+  // ---------------------------------------------------
   const fetchMeals = async () => {
     try {
       const res = await fetch(api.meals);
       const data = await res.json();
-
+      console.log('__________________________Ana Sayfa Tüm Öğünler:',data);
       if (!Array.isArray(data)) return;
 
       const myUid = user?.uid;
-      const others = myUid ? data.filter((m) => m.user_id !== myUid) : data;
+
+      const others = data.filter(meal => meal.user_id !== myUid);
 
       setMeals(others);
       setFilteredMeals(others);
+
       setLoading(false);
       setRefreshing(false);
     } catch (err) {
-      console.log("Meal hata:", err);
+      console.log("Meal alma hatası:", err);
       setLoading(false);
     }
   };
 
+  // ---------------------------------------------------
+  // OKUNMAMIŞ BİLDİRİMLER
+  // ---------------------------------------------------
   const fetchUnread = async () => {
     if (!user?.uid) return;
 
@@ -92,14 +86,17 @@ export default function Home() {
       });
 
       const data = await res.json();
-      const unreadCount = data.filter((n) => !n.is_read).length;
+      const unread = data.filter((n) => !n.is_read).length;
 
-      setHasUnread(unreadCount > 0);
+      setHasUnread(unread > 0);
     } catch (err) {
       console.log("UNREAD hatası:", err);
     }
   };
 
+  // ---------------------------------------------------
+  // USE EFFECT — ilk açılış
+  // ---------------------------------------------------
   useEffect(() => {
     fetchCategories();
     fetchMeals();
@@ -107,11 +104,6 @@ export default function Home() {
   }, [user]);
 
   const handleCategorySelect = (id) => {
-    if (id === "nearby") {
-      setSelectedCategory("nearby");
-      return;
-    }
-
     if (selectedCategory === id) {
       setSelectedCategory(null);
       setFilteredMeals(meals);
@@ -160,12 +152,15 @@ export default function Home() {
     outputRange: [400, 0],
   });
 
+  // ---------------------------------------------------
+  // HEADER
+  // ---------------------------------------------------
   const renderHeader = () => (
     <View>
       <View style={styles.header}>
         <View>
           <Text style={styles.hello}>
-            Selam, {user?.displayName?.split(" ")[0] || "Yemeksever"} 👋
+            Selam, {user?.username || "Yemeksever"} 👋
           </Text>
           <Text style={styles.subtitle}>Bugün ne yiyelim?</Text>
         </View>
@@ -182,6 +177,7 @@ export default function Home() {
         </TouchableOpacity>
       </View>
 
+      {/* ARAMA */}
       <View style={styles.searchBar}>
         <Ionicons name="search" size={20} color="#999" />
         <TextInput
@@ -191,7 +187,8 @@ export default function Home() {
         />
       </View>
 
-      <TouchableOpacity activeOpacity={0.9} onPress={openPremium}>
+      {/* BANNER */}
+      <TouchableOpacity activeOpacity={0.9} onPress={() => setPremiumVisible(true)}>
         <LinearGradient
           colors={["#FF5C4D", "#FF8C68"]}
           start={{ x: 0, y: 0 }}
@@ -213,67 +210,38 @@ export default function Home() {
         </LinearGradient>
       </TouchableOpacity>
 
+      {/* KATEGORİLER */}
       <View style={styles.categoryWrapper}>
         <FlatList
-          data={[{ id: "nearby", name: "Yakınımdakiler" }, ...categories]}
+          data={categories}
           keyExtractor={(item) => item.id.toString()}
           horizontal
           showsHorizontalScrollIndicator={false}
-          renderItem={({ item }) =>
-            item.id === "nearby" ? (
-              <TouchableOpacity
-                onPress={() => handleCategorySelect("nearby")}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              onPress={() => handleCategorySelect(item.id)}
+              style={[
+                styles.categoryItem,
+                selectedCategory === item.id && styles.categoryItemActive,
+              ]}
+            >
+              <Image
+                source={{ uri: item.image_url }}
                 style={[
-                  styles.categoryItem,
-                  selectedCategory === "nearby" && styles.categoryItemActive,
+                  styles.categoryImage,
+                  selectedCategory === item.id && styles.categoryImageActive,
+                ]}
+              />
+              <Text
+                style={[
+                  styles.categoryLabel,
+                  selectedCategory === item.id && styles.categoryLabelActive,
                 ]}
               >
-                <Ionicons
-                  name="location"
-                  size={42}
-                  color={
-                    selectedCategory === "nearby" ? "#FF5C4D" : "#666"
-                  }
-                />
-                <Text
-                  style={[
-                    styles.categoryLabel,
-                    selectedCategory === "nearby" &&
-                      styles.categoryLabelActive,
-                  ]}
-                >
-                  Yakınımdakiler
-                </Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                onPress={() => handleCategorySelect(item.id)}
-                style={[
-                  styles.categoryItem,
-                  selectedCategory === item.id &&
-                    styles.categoryItemActive,
-                ]}
-              >
-                <Image
-                  source={{ uri: item.image_url }}
-                  style={[
-                    styles.categoryImage,
-                    selectedCategory === item.id &&
-                      styles.categoryImageActive,
-                  ]}
-                />
-                <Text
-                  style={[
-                    styles.categoryLabel,
-                    selectedCategory === item.id &&
-                      styles.categoryLabelActive,
-                  ]}
-                >
-                  {item.name}
-                </Text>
-              </TouchableOpacity>
-            )
-          }
+                {item.name}
+              </Text>
+            </TouchableOpacity>
+          )}
         />
       </View>
     </View>
@@ -281,6 +249,7 @@ export default function Home() {
 
   return (
     <View style={styles.container}>
+      {/* MEAL LIST */}
       <FlatList
         data={filteredMeals}
         keyExtractor={(item) => item.id.toString()}
@@ -300,6 +269,7 @@ export default function Home() {
         }
       />
 
+      {/* ADD MEAL BUTTON */}
       <Animated.View
         style={[styles.addButtonContainer, { transform: [{ scale: scaleAnim }] }]}
       >
@@ -312,8 +282,6 @@ export default function Home() {
         >
           <LinearGradient
             colors={["#FF5C4D", "#FF8C68"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
             style={styles.addButton}
           >
             <Ionicons name="add" size={22} color="#fff" />
@@ -322,11 +290,12 @@ export default function Home() {
         </TouchableOpacity>
       </Animated.View>
 
+      {/* PREMIUM MODAL */}
       <Modal visible={premiumVisible} transparent animationType="fade">
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
-          onPress={closePremium}
+          onPress={() => setPremiumVisible(false)}
         />
 
         <Animated.View
@@ -339,10 +308,12 @@ export default function Home() {
           </Text>
 
           <TouchableOpacity style={styles.premiumButton}>
-            <Text style={styles.premiumButtonText}>Hemen Premium’a Geç →</Text>
+            <Text style={styles.premiumButtonText}>
+              Hemen Premium’a Geç →
+            </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={closePremium}>
+          <TouchableOpacity onPress={() => setPremiumVisible(false)}>
             <Text style={styles.closeText}>Kapat</Text>
           </TouchableOpacity>
         </Animated.View>
@@ -365,10 +336,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 60,
   },
+
   hello: { fontSize: 20, fontWeight: "700", color: "#333" },
   subtitle: { color: "#777", marginTop: 4, fontSize: 14 },
-  bellButton: { position: "relative", padding: 6 },
 
+  bellButton: { position: "relative", padding: 6 },
   dot: {
     position: "absolute",
     top: 0,
@@ -417,7 +389,12 @@ const styles = StyleSheet.create({
   categoryItemActive: { transform: [{ scale: 1.06 }] },
   categoryImage: { width: 70, height: 70, borderRadius: 12 },
   categoryImageActive: { borderWidth: 2, borderColor: "#FF5C4D" },
-  categoryLabel: { fontSize: 13, color: "#444", fontWeight: "600", marginTop: 6 },
+  categoryLabel: {
+    fontSize: 13,
+    color: "#444",
+    fontWeight: "600",
+    marginTop: 6,
+  },
   categoryLabelActive: { color: "#FF5C4D" },
 
   addButtonContainer: {
@@ -425,6 +402,7 @@ const styles = StyleSheet.create({
     bottom: 28,
     right: 20,
   },
+
   addButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -436,6 +414,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6,
   },
+
   addButtonText: {
     color: "#fff",
     fontWeight: "700",
@@ -443,10 +422,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
 
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
-  },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)" },
+
   modalSheet: {
     position: "absolute",
     bottom: 0,
@@ -456,19 +433,16 @@ const styles = StyleSheet.create({
     padding: 22,
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
-    elevation: 10,
   },
+
   premiumTitle: {
     fontSize: 22,
     fontWeight: "800",
     marginBottom: 8,
     color: "#333",
   },
-  premiumDesc: {
-    fontSize: 15,
-    color: "#555",
-    marginBottom: 18,
-  },
+  premiumDesc: { fontSize: 15, color: "#555", marginBottom: 18 },
+
   premiumButton: {
     backgroundColor: "#FF5C4D",
     paddingVertical: 12,
@@ -481,6 +455,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
   },
+
   closeText: {
     textAlign: "center",
     color: "#555",

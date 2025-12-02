@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import {
   View,
   Text,
@@ -7,46 +7,22 @@ import {
   Image,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../contexts/AuthContext";
-import * as Location from "expo-location";
+import { useRouter } from "expo-router";
 import MealCard from "../../components/MealCard";
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuth();
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("meals");
+  const { user, logout, loading } = useAuth();
+  const router = useRouter();
 
-  const loadProfile = async () => {
-    try {
-      const res = await fetch(
-        `https://yummyum-backend.vercel.app/api/users?id=${user.id}`
-      );
-      const json = await res.json();
-      setProfile(json);
-    } catch (e) {
-      console.log("PROFILE ERROR:", e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // DEBUG
   useEffect(() => {
-    if (user?.id) loadProfile();
+    console.log("🔵 CURRENT USER:", user);
   }, [user]);
 
-  const handleLocationPermission = async () => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") {
-      return Alert.alert("İzin Gerekli", "Konum izni vermelisin.");
-    }
-    Alert.alert("Konum Aktif", "Artık konum tabanlı öneriler alabilirsin.");
-  };
-
-  // ------------------------ UI --------------------------
   if (loading) {
     return (
       <View style={styles.center}>
@@ -55,39 +31,55 @@ export default function ProfileScreen() {
     );
   }
 
-  if (!profile) {
+  if (!user) {
     return (
       <View style={styles.center}>
-        <Text>Profil yüklenemedi.</Text>
+        <Text style={{ marginBottom: 12, color: "#333" }}>
+          Profil yüklenemedi.
+        </Text>
+
+        <TouchableOpacity
+          onPress={logout}
+          style={{
+            backgroundColor: "#FF5C4D",
+            paddingVertical: 10,
+            paddingHorizontal: 20,
+            borderRadius: 8,
+          }}
+        >
+          <Text style={{ color: "#fff", fontWeight: "600" }}>Çıkış Yap</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
-  return (
-    <View style={styles.container}>
+  // USER → AuthContext içindeki JSON
+  const meals = user?.meals || [];
+  console.log("________________PROFİLE MEALS:",meals);
 
-      {/* ==========================
-          INSTAGRAM TARZI HEADER
-      =========================== */}
+  return (
+    <SafeAreaView style={styles.safe}>
+      {/* HEADER */}
       <View style={styles.header}>
-        <TouchableOpacity>
+        <TouchableOpacity onPress={() => router.push("/profile-edit")}>
           <Ionicons name="settings-outline" size={26} color="#111" />
         </TouchableOpacity>
 
-        <Text style={styles.headerTitle}>{profile.user.username}</Text>
+        <Text style={styles.headerTitle}>
+          {user.username || "Kullanıcı"}
+        </Text>
 
         <TouchableOpacity onPress={logout}>
           <Ionicons name="log-out-outline" size={26} color="#111" />
         </TouchableOpacity>
       </View>
 
-      {/* PROFILE TOP AREA */}
+      {/* TOP AREA */}
       <View style={styles.profileTop}>
-
         <Image
           source={{
             uri:
-              profile.user.photo_url ||
+              user.photo_url ||
               "https://cdn-icons-png.flaticon.com/512/3177/3177440.png",
           }}
           style={styles.avatar}
@@ -95,108 +87,84 @@ export default function ProfileScreen() {
 
         <View style={styles.profileStatsWrapper}>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{profile.meals.length}</Text>
+            <Text style={styles.statNumber}>{meals.length}</Text>
             <Text style={styles.statLabel}>Paylaşılan</Text>
           </View>
 
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{profile.matchCount}</Text>
+            <Text style={styles.statNumber}>{user.matchCount || 0}</Text>
             <Text style={styles.statLabel}>Eşleşme</Text>
           </View>
 
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{profile.points}</Text>
+            <Text style={styles.statNumber}>{user.points || 0}</Text>
             <Text style={styles.statLabel}>Puan</Text>
           </View>
         </View>
       </View>
 
-      {/* NAME + RATING */}
+      {/* NAME + EDIT BTN */}
       <View style={{ paddingHorizontal: 20 }}>
-        <Text style={styles.nameText}>{profile.user.username}</Text>
+        <Text style={styles.nameText}>{user.username}</Text>
 
         <View style={styles.ratingRow}>
           <Ionicons name="star" size={16} color="#FFD700" />
-          <Text style={styles.ratingText}>{profile.user.rating}</Text>
+          <Text style={styles.ratingText}>{user.rating || "0.0"}</Text>
         </View>
 
         <TouchableOpacity
           style={styles.editBtn}
-          onPress={() => Alert.alert("Yakında", "Profil düzenleme geliyor.")}
+          onPress={() => router.push("/profile-edit")}
         >
           <Text style={styles.editBtnText}>Profili Düzenle</Text>
         </TouchableOpacity>
       </View>
 
-      {/* TABS */}
-      <View style={styles.tabsRow}>
-        {["meals", "matches"].map((tab) => (
-          <TouchableOpacity
-            key={tab}
-            onPress={() => setActiveTab(tab)}
-            style={[
-              styles.tabButton,
-              activeTab === tab && styles.tabButtonActive,
-            ]}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === tab && styles.tabTextActive,
-              ]}
-            >
-              {tab === "meals" ? "Öğünler" : "Eşleşmeler"}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
+      {/* MEALS */}
       <ScrollView style={{ flex: 1 }}>
-
-        {/* === ÖĞÜNLER === */}
-        {activeTab === "meals" && (
-          <>
-            {profile.meals.length === 0 ? (
-              <View style={styles.empty}>
-                <Ionicons name="fast-food-outline" size={64} color="#FFB8B0" />
-                <Text style={styles.emptyText}>Henüz öğün paylaşmadın</Text>
-              </View>
-            ) : (
-              <View style={styles.mealGrid}>
-                {profile.meals.map((meal) => (
-                  <MealCard key={meal.id} meal={meal} />
-                ))}
-              </View>
-            )}
-          </>
-        )}
-
-        {/* === EŞLEŞME GEÇMİŞİ === */}
-        {activeTab === "matches" && (
+        {meals.length === 0 ? (
           <View style={styles.empty}>
-            <Ionicons name="people-circle-outline" size={64} color="#FFB8B0" />
-            <Text style={styles.emptyText}>Eşleşme geçmişi yakında</Text>
+            <Ionicons name="fast-food-outline" size={64} color="#FFB8B0" />
+            <Text style={styles.emptyText}>Henüz öğün paylaşmadın</Text>
+
+            <TouchableOpacity
+              style={styles.addMealBtn}
+              onPress={() => router.push("/share")}
+            >
+              <Text style={styles.addMealText}>Öğün Ekle</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.mealGrid}>
+            {meals.map((meal) => (
+              <MealCard key={meal.id} meal={meal} />
+            ))}
           </View>
         )}
-
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
-/* ====================== STYLES ====================== */
-
+//
+// STYLES
+//
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
+  safe: {
+    flex: 1,
+    backgroundColor: "#fff",
+  },
+
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
 
   header: {
-    paddingTop: 20,
     paddingHorizontal: 20,
     paddingBottom: 12,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderColor: "#eee",
+    paddingTop: 10, // SAFE AREA zaten üst boşluğu veriyor
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
@@ -230,6 +198,7 @@ const styles = StyleSheet.create({
   },
 
   statItem: { alignItems: "center" },
+
   statNumber: { fontSize: 18, fontWeight: "700", color: "#FF5C4D" },
   statLabel: { fontSize: 12, color: "#777" },
 
@@ -246,50 +215,44 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 8,
   },
+
   ratingText: { color: "#777", marginLeft: 5, fontWeight: "600" },
 
   editBtn: {
     backgroundColor: "#F5F5F5",
-    paddingVertical: 8,
+    paddingVertical: 12,
     borderRadius: 8,
     alignItems: "center",
+    width: "100%",
+    alignSelf: "center",
     marginTop: 8,
-    width: 140,
+    marginBottom: 12,
   },
   editBtnText: {
     color: "#111",
     fontWeight: "600",
-    fontSize: 14,
+    fontSize: 15,
   },
 
-  tabsRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    borderBottomWidth: 1,
-    borderColor: "#eee",
-    paddingVertical: 10,
-    marginTop: 10,
-  },
+  empty: { alignItems: "center", marginTop: 50 },
+  emptyText: { marginTop: 10, color: "#777" },
 
-  tabButton: {
-    paddingVertical: 6,
+  addMealBtn: {
+    marginTop: 16,
+    backgroundColor: "#FF5C4D",
+    paddingVertical: 12,
     paddingHorizontal: 20,
-    borderRadius: 18,
+    borderRadius: 10,
   },
 
-  tabButtonActive: {
-    backgroundColor: "#FFEEE9",
+  addMealText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
   },
-
-  tabText: { fontWeight: "600", color: "#777" },
-  tabTextActive: { color: "#FF5C4D" },
 
   mealGrid: {
     padding: 16,
     gap: 14,
   },
-
-  empty: { alignItems: "center", marginTop: 50 },
-  emptyText: { marginTop: 10, color: "#777" },
 });
-

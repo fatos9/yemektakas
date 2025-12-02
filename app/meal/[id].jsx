@@ -15,21 +15,26 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
 
 export default function MealDetail() {
-  const { id } = useLocalSearchParams();
+  const { id, requestId } = useLocalSearchParams();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
 
   const [meal, setMeal] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showFullImage, setShowFullImage] = useState(false);
 
-  const [myMeals, setMyMeals] = useState([]); // Kullanıcının kendi öğünleri
-  const [showFullImage, setShowFullImage] = useState(false); // FULLSCREEN IMAGE
+  const [alreadySent, setAlreadySent] = useState(false);
+  const [loadingMatch, setLoadingMatch] = useState(false);
+  const [globalLoading, setGlobalLoading] = useState(false);
 
-  const API = "https://yummyum-backend.vercel.app/api";
+  const isFromNotification = !!requestId;
+  const API = "https://yummy-backend-fxib.onrender.com";
 
-  // ------------------------------
-  // 🔥 Öğün detayını al
-  // ------------------------------
+  const myMeals = user?.meals || [];
+
+  /* ---------------------------------------------
+    1) ÖĞÜN DETAYI
+  --------------------------------------------- */
   useEffect(() => {
     const fetchDetail = async () => {
       try {
@@ -37,7 +42,9 @@ export default function MealDetail() {
         const text = await res.text();
         let data = JSON.parse(text);
 
-        if (typeof data.allergens === "string") data.allergens = JSON.parse(data.allergens);
+        if (typeof data.allergens === "string")
+          data.allergens = JSON.parse(data.allergens);
+
         if (typeof data.restaurant_location === "string")
           data.restaurant_location = JSON.parse(data.restaurant_location);
 
@@ -48,109 +55,172 @@ export default function MealDetail() {
         setLoading(false);
       }
     };
-
     fetchDetail();
   }, [id]);
 
-  // ------------------------------
-  // 🔥 Kullanıcının kendi öğünlerini çek
-  // ------------------------------
+  /* ---------------------------------------------
+    2) MATCH GÖNDERİLMİŞ Mİ KONTROL
+  --------------------------------------------- */
   useEffect(() => {
-    const fetchMyMeals = async () => {
+    if (!meal || !user || isFromNotification) return;
+
+    const checkAlready = async () => {
       try {
-        const res = await fetch(`${API}/meals`);
+        const res = await fetch(`${API}/match/sent`, {
+          headers: { Authorization: `Bearer ${user.token}` },
+        });
+
         const list = await res.json();
 
-        const mine = list.filter((m) => m.user_id === user?.id);
-        setMyMeals(mine);
-      } catch (err) {
-        console.log("MY MEALS ERROR:", err);
+        const exists = list.some(
+          (item) =>
+            item.to_user_id === meal.user_id &&
+            Number(item.meal_id) === Number(meal.id)
+        );
+
+        setAlreadySent(exists);
+      } catch {
+        setAlreadySent(false);
       }
     };
 
-    if (user?.id) fetchMyMeals();
-  }, [user]);
+    checkAlready();
+  }, [meal, user, isFromNotification]);
 
-  // ------------------------------
-  // 🔥 Match butonu
-  // ------------------------------
+  /* ---------------------------------------------
+    3) MATCH GÖNDER
+  --------------------------------------------- */
   const handleMatch = async () => {
     if (myMeals.length === 0) {
-      Alert.alert(
-        "Öğün Eklenmedi",
-        "Eşleşme isteği gönderebilmek için önce bir öğün eklemelisin."
-      );
+      Alert.alert("Öğün Eklenmedi", "Önce bir öğün eklemen gerekiyor.");
       return;
     }
 
+    setLoadingMatch(true);
+    setGlobalLoading(true);
+
     try {
-      const res = await fetch(`${API}/match`, {
+      const res = await fetch(`${API}/match/send`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${user.token}`,
+        },
         body: JSON.stringify({
-          sender_id: user.id,        // mevcut kullanıcı
-          receiver_id: meal.user_id, // öğünün sahibi
+          to_user_id: meal.user_id,
           meal_id: meal.id,
         }),
       });
 
-      const text = await res.text();
-      console.log("MATCH POST RESPONSE:", text);
+      const data = await res.json();
 
-      let data;
-
-      // API'nin text dönmesi ihtimali →
-      try {
-        data = JSON.parse(text);
-      } catch (err) {
-        console.log("PARSE ERROR:", err);
-        Alert.alert("Hata", "Sunucu geçersiz yanıt döndü.");
-        return;
-      }
-
-      if (data.success) {
-        Alert.alert("Gönderildi", "Eşleşme isteğin karşı tarafa gönderildi.");
-      } else {
-        Alert.alert("Hata", "İstek gönderilemedi.");
+      if (data.message === "Zaten istek gönderilmiş") {
+        Alert.alert("Bilgi", "Zaten istek göndermişsin.");
+        setAlreadySent(true);
+      } else if (data.id) {
+        Alert.alert("Başarılı", "Eşleşme isteği gönderildi.");
+        setAlreadySent(true);
       }
     } catch (err) {
-      console.log("MATCH ERROR:", err);
-      Alert.alert("Hata", "Sunucuya bağlanılamadı.");
+      Alert.alert("Hata", "Sunucuya ulaşılamadı.");
+    }
+
+    setLoadingMatch(false);
+    setGlobalLoading(false);
+  };
+
+  /* ---------------------------------------------
+    4) İSTEĞİ KABUL ET
+    ACCEPT → match + chat_room döner
+  --------------------------------------------- */
+  const handleAccept = async () => {
+    try {
+      setGlobalLoading(true);
+
+      const res = await fetch(`${API}/match/accept`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${user.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ request_id: requestId }),
+      });
+
+      const data = await res.json();
+      console.log('Accept Sonrası:',data);
+     if (data.room?.id) {
+        Alert.alert("Eşleşme Açıldı", "Artık sohbet edebilirsiniz!", [
+          {
+            text: "Sohbete Git",
+            onPress: () => router.push(`/chat/${data.room.id}`),
+          },
+        ]);
+      } else {
+        Alert.alert("Hata", "Chat odası oluşturulamadı.");
+      }
+    } catch (err) {
+      Alert.alert("Hata", "İstek kabul edilemedi.");
+    } finally {
+      setGlobalLoading(false);
     }
   };
 
+  /* ---------------------------------------------
+    5) İSTEĞİ REDDET
+  --------------------------------------------- */
+  const handleReject = async () => {
+    try {
+      setGlobalLoading(true);
 
-  // 🗑️ Öğün Silme
-  const handleDelete = () => {
-    Alert.alert(
-      "Onay",
-      "Bu öğünü silmek istediğine emin misin?",
-      [
-        { text: "İptal", style: "cancel" },
-        {
-          text: "Sil",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await fetch(`${API}/meals/${id}`, {
-                method: "DELETE",
-              });
-
-              router.replace("/");
-            } catch (err) {
-              console.log("DELETE ERROR:", err);
-            }
-          },
+      await fetch(`${API}/match/reject`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${user.token}`,
+          "Content-Type": "application/json",
         },
-      ]
-    );
+        body: JSON.stringify({ request_id: requestId }),
+      });
+
+      Alert.alert("İstek Reddedildi", "", [
+        { text: "Tamam", onPress: () => router.back() },
+      ]);
+    } finally {
+      setGlobalLoading(false);
+    }
   };
 
-  // ✏️ Düzenle
+  /* ---------------------------------------------
+    6) ÖĞÜN SİL / DÜZENLE
+  --------------------------------------------- */
+  const handleDelete = () => {
+    Alert.alert("Onay", "Bu öğünü silmek istiyor musun?", [
+      { text: "İptal", style: "cancel" },
+      {
+        text: "Sil",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            setGlobalLoading(true);
+            await fetch(`${API}/meals/${id}`, {
+              method: "DELETE",
+              headers: { Authorization: `Bearer ${user.token}` },
+            });
+
+            await refreshProfile();
+            router.replace("/(tabs)/profile");
+          } finally {
+            setGlobalLoading(false);
+          }
+        },
+      },
+    ]);
+  };
+
   const handleEdit = () => {
     router.push(`/meal/edit?id=${id}`);
   };
 
+  /* LOADING */
   if (loading)
     return (
       <View style={styles.center}>
@@ -165,16 +235,15 @@ export default function MealDetail() {
       </View>
     );
 
-  const isOwner = meal.user_id?.toString() === user?.id?.toString()
+  const isOwner = meal.user_id === user.uid;
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
-      {/* 🔙 Geri */}
+      
       <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
         <Ionicons name="arrow-back" size={24} color="#fff" />
       </TouchableOpacity>
 
-      {/* 📸 Küçük Görsel + Fullscreen Açma */}
       <TouchableOpacity onPress={() => setShowFullImage(true)}>
         <Image source={{ uri: meal.image_url }} style={styles.heroImage} />
       </TouchableOpacity>
@@ -183,13 +252,6 @@ export default function MealDetail() {
         <Text style={styles.mealName}>{meal.name}</Text>
         <Text style={styles.restaurant}>{meal.restaurant_name}</Text>
 
-        {/* ⭐ Rating */}
-        <View style={styles.row}>
-          <Ionicons name="star" size={16} color="#FFD700" />
-          <Text style={styles.rating}>{(meal.user_rating || "4.8").toString()}</Text>
-        </View>
-
-        {/* 👤 Kullanıcı */}
         <View style={styles.userBox}>
           <Image
             source={{
@@ -205,7 +267,6 @@ export default function MealDetail() {
           </View>
         </View>
 
-        {/* 🗺️ Mini Harita */}
         <Text style={styles.sectionTitle}>Konum</Text>
 
         <MapView
@@ -218,8 +279,6 @@ export default function MealDetail() {
           }}
           scrollEnabled={false}
           zoomEnabled={false}
-          pitchEnabled={false}
-          rotateEnabled={false}
         >
           <Marker
             coordinate={{
@@ -229,39 +288,52 @@ export default function MealDetail() {
           />
         </MapView>
 
-        {/* 🍽️ Alerjenler */}
         <Text style={styles.sectionTitle}>Alerjenler</Text>
         <View style={styles.allergenList}>
-          {meal.allergens.map((a, i) => (
+          {meal.allergens?.map((a, i) => (
             <View key={i} style={styles.allergenChip}>
               <Text style={styles.allergenText}>{a}</Text>
             </View>
           ))}
         </View>
 
-        <View style={{ height: 110 }} />
+        <View style={{ height: 120 }} />
       </ScrollView>
 
-      {/* 🔘 ALT BUTONLAR */}
-      {!isOwner ? (
+      {/* ALT BUTONLAR */}
+      {isFromNotification ? (
+        <View style={styles.bottomBarOwner}>
+          <TouchableOpacity style={styles.acceptBtn} onPress={handleAccept}>
+            <Ionicons name="checkmark-outline" size={20} color="#fff" />
+            <Text style={styles.acceptText}>Kabul Et</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.rejectBtn} onPress={handleReject}>
+            <Ionicons name="close-outline" size={20} color="#fff" />
+            <Text style={styles.rejectText}>Reddet</Text>
+          </TouchableOpacity>
+        </View>
+      ) : !isOwner ? (
         <View style={styles.bottomBar}>
           <TouchableOpacity
             style={[
               styles.matchBtn,
-              { opacity: myMeals.length === 0 ? 0.4 : 1 },
+              {
+                opacity:
+                  alreadySent || myMeals.length === 0 || loadingMatch ? 0.5 : 1,
+              },
             ]}
-            disabled={myMeals.length === 0}
+            disabled={alreadySent || myMeals.length === 0 || loadingMatch}
             onPress={handleMatch}
           >
-            <Text style={styles.matchText}>Eşleşme İsteği Gönder</Text>
+            {loadingMatch ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.matchText}>
+                {alreadySent ? "İstek Gönderildi" : "Eşleşme İsteği Gönder"}
+              </Text>
+            )}
           </TouchableOpacity>
-
-          {/* 🔥 Eğer hiç öğün yoksa sebebi göster */}
-          {myMeals.length === 0 && (
-            <Text style={styles.disabledInfo}>
-              Eşleşme isteği gönderebilmek için önce bir öğün eklemelisin.
-            </Text>
-          )}
         </View>
       ) : (
         <View style={styles.bottomBarOwner}>
@@ -277,7 +349,7 @@ export default function MealDetail() {
         </View>
       )}
 
-      {/* 🔥 FULLSCREEN IMAGE MODAL */}
+      {/* FULLSCREEN IMAGE */}
       {showFullImage && (
         <View style={styles.fullscreenWrapper}>
           <TouchableOpacity
@@ -294,12 +366,22 @@ export default function MealDetail() {
           />
         </View>
       )}
+
+      {/* GLOBAL OVERLAY */}
+      {globalLoading && (
+        <View style={styles.globalOverlay}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.overlayText}>İşleniyor...</Text>
+        </View>
+      )}
     </View>
   );
 }
 
-//
-// --- STYLES ---
+/* ------------------------------ */
+/*          STYLES                */
+/* ------------------------------ */
+
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
 
@@ -313,12 +395,7 @@ const styles = StyleSheet.create({
     borderRadius: 30,
   },
 
-  // 🔥 Küçültülmüş görsel
-  heroImage: {
-    width: "100%",
-    height: 180,
-  },
-
+  heroImage: { width: "100%", height: 180 },
   content: { padding: 20 },
 
   mealName: { fontSize: 24, fontWeight: "700", color: "#333" },
@@ -357,6 +434,7 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 6,
   },
+
   allergenChip: {
     backgroundColor: "#FFE2DF",
     paddingHorizontal: 12,
@@ -365,7 +443,6 @@ const styles = StyleSheet.create({
   },
   allergenText: { color: "#FF5C4D", fontWeight: "600", fontSize: 13 },
 
-  // 🔥 Bottom bar
   bottomBar: {
     position: "absolute",
     bottom: 0,
@@ -400,11 +477,38 @@ const styles = StyleSheet.create({
 
   matchText: { color: "#fff", fontSize: 16, fontWeight: "700" },
 
-  disabledInfo: {
-    textAlign: "center",
-    marginTop: 10,
-    fontSize: 13,
-    color: "#777",
+  acceptBtn: {
+    flex: 1,
+    backgroundColor: "#4CAF50",
+    paddingVertical: 14,
+    borderRadius: 14,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  rejectBtn: {
+    flex: 1,
+    backgroundColor: "#FF3B30",
+    paddingVertical: 14,
+    borderRadius: 14,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  acceptText: {
+    color: "#fff",
+    marginLeft: 8,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+
+  rejectText: {
+    color: "#fff",
+    marginLeft: 8,
+    fontSize: 15,
+    fontWeight: "700",
   },
 
   editBtn: {
@@ -430,7 +534,6 @@ const styles = StyleSheet.create({
   editText: { color: "#fff", marginLeft: 8, fontSize: 15, fontWeight: "700" },
   deleteText: { color: "#fff", marginLeft: 8, fontSize: 15, fontWeight: "700" },
 
-  // 🔥 Fullscreen image styles
   fullscreenWrapper: {
     position: "absolute",
     top: 0,
@@ -443,15 +546,30 @@ const styles = StyleSheet.create({
     zIndex: 999,
   },
 
-  fullscreenImage: {
-    width: "100%",
-    height: "100%",
-  },
+  fullscreenImage: { width: "100%", height: "100%" },
 
   closeBtn: {
     position: "absolute",
     top: 40,
     right: 20,
     zIndex: 1000,
+  },
+
+  globalOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 2000,
+  },
+  overlayText: {
+    marginTop: 12,
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

@@ -26,7 +26,8 @@ const API_BASE = "https://yummy-backend-fxib.onrender.com";
 
 export default function AddMeal() {
   const router = useRouter();
-  const { token } = useAuth();
+  const { user, setUser, refreshProfile } = useAuth();
+  const token = user?.token;
 
   const [mealName, setMealName] = useState("");
   const [categories, setCategories] = useState([]);
@@ -34,9 +35,14 @@ export default function AddMeal() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [allergens, setAllergens] = useState([]);
   const [selectedRestaurant, setSelectedRestaurant] = useState(null);
+  const [shouldNavigate, setShouldNavigate] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // 🔥 GLOBAL OVERLAY — YENİ EKLEDİĞİMİZ
+  const [globalLoading, setGlobalLoading] = useState(false);
+
   const [selectedImage, setSelectedImage] = useState(null);
 
   // -------------------------------------------------------
@@ -60,6 +66,11 @@ export default function AddMeal() {
     Alert.alert("Konum Gerekli", "Yakındaki restoranlar için konum gerekli.");
     return false;
   };
+useEffect(() => {
+  if (shouldNavigate) {
+    router.replace("/(tabs)");
+  }
+}, [shouldNavigate]);
 
   useEffect(() => {
     (async () => {
@@ -74,13 +85,11 @@ export default function AddMeal() {
   useEffect(() => {
     fetch(`${API_BASE}/categories`)
       .then((res) => res.json())
-      .then((data) => setCategories(data))
-      .catch((err) => console.log("Kategori hatası:", err));
+      .then((data) => setCategories(data));
 
     fetch(`${API_BASE}/allergens`)
       .then((res) => res.json())
-      .then((data) => setAllergenOptions(data))
-      .catch((err) => console.log("Alerjen hatası:", err));
+      .then((data) => setAllergenOptions(data));
   }, []);
 
   // -------------------------------------------------------
@@ -128,7 +137,7 @@ export default function AddMeal() {
   }
 
   // -------------------------------------------------------
-  // 💾 Öğünü Kaydet
+  // 💾 Öğünü Kaydet — OVERLAY BURADA KULLANIYORUZ
   // -------------------------------------------------------
   const handleSaveMeal = async () => {
     if (!mealName.trim() || !selectedCategory)
@@ -136,6 +145,7 @@ export default function AddMeal() {
 
     try {
       setSaving(true);
+      setGlobalLoading(true); // 🔥 TAM EKRAN OVERLAY AÇ
 
       // 📍 Kullanıcı konumu
       const loc = await Location.getCurrentPositionAsync({});
@@ -155,11 +165,14 @@ export default function AddMeal() {
 
       // 🖼 Fotoğraf upload
       let imageURL = "";
+
       if (selectedImage) {
         imageURL = await uploadToBackend(selectedImage);
+      } else {
+        const selectedCat = categories.find((c) => c.id === selectedCategory);
+        imageURL = selectedCat?.image_url || "";
       }
 
-      // 🚀 API’ye gönder
       const response = await fetch(`${API_BASE}/meals`, {
         method: "POST",
         headers: {
@@ -178,19 +191,28 @@ export default function AddMeal() {
         }),
       });
 
-      if (!response.ok) {
-        console.log(await response.text());
-        throw new Error("API error");
-      }
+      if (!response.ok) throw new Error("API error");
+
+      const data = await response.json();
+
+      // 🔥 USER STATE GÜNCELLE
+      setUser((prev) => ({
+        ...prev,
+        meals: [data, ...(prev.meals || [])],
+      }));
 
       Alert.alert("🎉 Başarılı", "Yemeğin paylaşıldı!", [
-        { text: "Tamam", onPress: () => router.push("/(tabs)") },
+        {
+          text: "Tamam",
+          onPress: () => setShouldNavigate(true)
+        }
       ]);
+
     } catch (err) {
-      console.log(err);
-      Alert.alert("Hata", "Yemek eklenirken bir sorun oluştu");
+      Alert.alert("Hata", "Yemek eklenirken sorun oluştu");
     } finally {
       setSaving(false);
+      setGlobalLoading(false); // 🔥 OVERLAY KAPAT
     }
   };
 
@@ -212,9 +234,7 @@ export default function AddMeal() {
           marginTop={-50}
         />
 
-        {/* ======================================
-              FOTOĞRAF ALANI
-        ====================================== */}
+        {/* FOTOĞRAF */}
         <View style={styles.imageWrapper}>
           {selectedImage ? (
             <View style={styles.imagePreviewContainer}>
@@ -235,18 +255,12 @@ export default function AddMeal() {
               <Text style={styles.uploadTitle}>Görsel Ekle</Text>
 
               <View style={styles.uploadButtons}>
-                <TouchableOpacity
-                  style={styles.uploadBtn}
-                  onPress={pickImage}
-                >
+                <TouchableOpacity style={styles.uploadBtn} onPress={pickImage}>
                   <Upload size={16} color="#FF5C4D" />
                   <Text style={styles.uploadBtnText}>Galeriden</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={styles.uploadBtn}
-                  onPress={takePhoto}
-                >
+                <TouchableOpacity style={styles.uploadBtn} onPress={takePhoto}>
                   <Camera size={16} color="#FF5C4D" />
                   <Text style={styles.uploadBtnText}>Kameradan</Text>
                 </TouchableOpacity>
@@ -255,9 +269,7 @@ export default function AddMeal() {
           )}
         </View>
 
-        {/* ======================================
-              YEMEK ADI
-        ====================================== */}
+        {/* YEMEK ADI */}
         <View style={styles.card}>
           <Text style={styles.label}>Yemek Adı</Text>
           <TextInput
@@ -268,9 +280,7 @@ export default function AddMeal() {
           />
         </View>
 
-        {/* ======================================
-              KATEGORİLER
-        ====================================== */}
+        {/* KATEGORİ */}
         <View style={styles.card}>
           <Text style={styles.label}>Kategori</Text>
 
@@ -309,9 +319,7 @@ export default function AddMeal() {
           />
         </View>
 
-        {/* ======================================
-              ALERJENLER
-        ====================================== */}
+        {/* ALERJENLER */}
         <View style={styles.card}>
           <Text style={styles.label}>Alerjenler</Text>
 
@@ -348,16 +356,10 @@ export default function AddMeal() {
           </View>
         </View>
 
-        {/* ======================================
-              RESTORAN SEÇİCİ
-        ====================================== */}
-        <RestaurantPicker
-          onSelect={(place) => setSelectedRestaurant(place)}
-        />
+        {/* RESTORAN PICKER */}
+        <RestaurantPicker onSelect={(place) => setSelectedRestaurant(place)} />
 
-        {/* ======================================
-              KAYDET
-        ====================================== */}
+        {/* KAYDET */}
         <TouchableOpacity
           style={[styles.saveBtn, saving && { opacity: 0.6 }]}
           onPress={handleSaveMeal}
@@ -368,13 +370,21 @@ export default function AddMeal() {
           </Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* 🔥 TAM EKRAN LOADING OVERLAY */}
+      {globalLoading && (
+        <View style={styles.globalOverlay}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.overlayText}>Yükleniyor...</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
 
-//
-//  S T Y L E S
-//
+// -------------------------------------------------------
+// S T Y L E S
+// -------------------------------------------------------
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#FAFAFA" },
   scroll: { paddingBottom: 120 },
@@ -475,4 +485,24 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   saveText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+
+  // 🔥 GLOBAL LOADING OVERLAY
+  globalOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 9999,
+  },
+
+  overlayText: {
+    marginTop: 12,
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
 });

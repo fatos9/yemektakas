@@ -1,68 +1,137 @@
 import { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity } from "react-native";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  SafeAreaView,
+} from "react-native";
+import { useRouter } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
 
 export default function RegisterScreen() {
-  const { loginWithGoogle } = useAuth();
+  const router = useRouter();
+  const { registerWithEmail } = useAuth();
+
   const [username, setUsername] = useState("");
-  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   const handleRegister = async () => {
-    router.push("/verify"); // İstersen SMS doğrulama da ekleriz
+    if (!username.trim()) return Alert.alert("Hata", "İsim boş olamaz.");
+    if (!email.includes("@")) return Alert.alert("Hata", "Geçerli bir email girin.");
+    if (password.length < 6)
+      return Alert.alert("Hata", "Şifre en az 6 karakter olmalı.");
+
+    try {
+      await registerWithEmail(email, password, username);
+      router.replace("/(tabs)/profile");
+    } catch (err) {
+      console.log("Register error:", err);
+      Alert.alert("Kayıt hatası", err.message || "Bir hata oluştu.");
+    }
   };
 
   return (
-    <View style={{ padding: 20 }}>
-      <Text style={{ fontSize: 26, fontWeight: "bold" }}>Kayıt Ol</Text>
+    <SafeAreaView style={styles.container}>
+      <Text style={styles.title}>Kayıt Ol</Text>
+      <Text style={styles.subtitle}>Hemen hesabını oluştur.</Text>
 
-      <TextInput
-        placeholder="Ad Soyad"
-        style={styles.input}
-        value={username}
-        onChangeText={setUsername}
-      />
+      <View style={{ marginTop: 25 }}>
+        <Text style={styles.label}>Ad Soyad</Text>
+        <TextInput
+          placeholder="Ad Soyad"
+          style={styles.input}
+          value={username}
+          onChangeText={setUsername}
+        />
 
-      <TextInput
-        placeholder="Telefon"
-        style={styles.input}
-        value={phone}
-        onChangeText={setPhone}
-        keyboardType="phone-pad"
-      />
+        <Text style={styles.label}>Email</Text>
+        <TextInput
+          placeholder="ornek@mail.com"
+          style={styles.input}
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
+        />
+
+        <Text style={styles.label}>Şifre</Text>
+        <TextInput
+          placeholder="••••••••"
+          style={styles.input}
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+        />
+      </View>
 
       <TouchableOpacity style={styles.btn} onPress={handleRegister}>
-        <Text style={styles.btnText}>Devam Et</Text>
+        <Text style={styles.btnText}>Kayıt Ol</Text>
       </TouchableOpacity>
 
-      {/* Google Login */}
-      <TouchableOpacity style={styles.googleBtn} onPress={loginWithGoogle}>
-        <Text style={styles.googleText}>Google ile devam et</Text>
+      <TouchableOpacity
+        style={{ marginTop: 20 }}
+        onPress={() => router.push("/(auth)/login")}
+      >
+        <Text style={styles.loginLink}>
+          Hesabın var mı? <Text style={styles.loginBold}>Giriş Yap</Text>
+        </Text>
       </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   );
 }
 
-const styles = {
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 24,
+    backgroundColor: "#fff",
+  },
+  title: {
+    fontSize: 30,
+    fontWeight: "800",
+    marginTop: 40,
+    color: "#111",
+  },
+  subtitle: {
+    fontSize: 16,
+    color: "#666",
+    marginTop: 6,
+  },
+  label: {
+    fontWeight: "600",
+    color: "#444",
+    marginBottom: 6,
+    marginTop: 18,
+  },
   input: {
-    marginVertical: 10,
     borderWidth: 1,
-    borderRadius: 8,
-    padding: 12,
+    borderColor: "#ddd",
+    borderRadius: 10,
+    padding: 14,
+    fontSize: 15,
   },
   btn: {
     backgroundColor: "#FF5C4D",
-    padding: 14,
-    borderRadius: 10,
-    marginTop: 20,
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 30,
   },
-  btnText: { color: "#fff", textAlign: "center", fontWeight: "700" },
-
-  googleBtn: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    padding: 14,
-    borderRadius: 10,
-    marginTop: 10,
+  btnText: {
+    color: "#fff",
+    textAlign: "center",
+    fontWeight: "700",
+    fontSize: 16,
   },
-  googleText: { textAlign: "center", fontWeight: "600" },
-};
+  loginLink: {
+    textAlign: "center",
+    color: "#555",
+  },
+  loginBold: {
+    fontWeight: "700",
+    color: "#FF5C4D",
+  },
+});

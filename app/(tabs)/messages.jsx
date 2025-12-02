@@ -11,85 +11,62 @@ import {
   Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { db } from "../../firebase/config";
-import { getAuth } from "firebase/auth";
-import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  getDoc,
-  doc,
-  orderBy,
-} from "firebase/firestore";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAuth } from "../../contexts/AuthContext";
 
 export default function MessagesScreen() {
-  const auth = getAuth();
-  const user = auth.currentUser;
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
 
-  const [chats, setChats] = useState([]);
-  const [filteredChats, setFilteredChats] = useState([]);
+  const [rooms, setRooms] = useState([]);
+  const [filteredRooms, setFilteredRooms] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
 
+  const API = "https://yummy-backend-fxib.onrender.com";
+
+  // --------------------------------------
+  // ROOMS LOAD
+  // --------------------------------------
   useEffect(() => {
-    if (!user) return;
+    loadRooms();
+  }, []);
 
-    const qA = query(collection(db, "chats"), where("userA", "==", user.uid));
-    const qB = query(collection(db, "chats"), where("userB", "==", user.uid));
+  const loadRooms = async () => {
+    try {
+      const res = await fetch(`${API}/chat/rooms`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
 
-    const unsubA = onSnapshot(qA, (snap) => handleSnapshot(snap));
-    const unsubB = onSnapshot(qB, (snap) => handleSnapshot(snap));
-
-    async function handleSnapshot(snapshot) {
-      const list = await Promise.all(
-        snapshot.docs.map(async (docSnap) => {
-          const data = docSnap.data();
-          const otherId = data.userA === user.uid ? data.userB : data.userA;
-          const userSnap = await getDoc(doc(db, "users", otherId));
-          const other = userSnap.exists() ? userSnap.data() : null;
-          return {
-            id: docSnap.id,
-            ...data,
-            otherUser: other,
-            otherId,
-          };
-        })
-      );
-
-      const merged = [...list];
-      const sorted = merged.sort(
-        (a, b) =>
-          (b.lastMessageAt?.seconds || 0) - (a.lastMessageAt?.seconds || 0)
-      );
-      setChats(sorted);
-      setFilteredChats(sorted);
+      const data = await res.json();
+      console.log("Room List:",data);
+      setRooms(data);
+      setFilteredRooms(data);
+    } catch (err) {
+      console.log("ROOM LIST ERROR:", err);
+    } finally {
       setLoading(false);
     }
+  };
 
-    return () => {
-      unsubA();
-      unsubB();
-    };
-  }, [user]);
-
-  // 🔍 Arama işlevi
+  // --------------------------------------
+  // SEARCH
+  // --------------------------------------
   useEffect(() => {
     if (!search.trim()) {
-      setFilteredChats(chats);
+      setFilteredRooms(rooms);
     } else {
-      const lower = search.toLowerCase();
-      const filtered = chats.filter((c) =>
-        c.otherUser?.name?.toLowerCase().includes(lower)
+      const s = search.toLowerCase();
+      setFilteredRooms(
+        rooms.filter((r) =>
+          r.other_username?.toLowerCase()?.includes(s)
+        )
       );
-      setFilteredChats(filtered);
     }
-  }, [search, chats]);
+  }, [search, rooms]);
 
   if (loading)
     return (
@@ -101,13 +78,13 @@ export default function MessagesScreen() {
   return (
     <LinearGradient colors={["#FFF8F7", "#FFF4F2"]} style={styles.container}>
       <View style={[styles.safeTop, { paddingTop: insets.top + 10 }]}>
-        {/* 🔝 Header */}
+        {/* HEADER */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Mesajlar</Text>
           <Ionicons name="chatbubbles" size={24} color="#FF5C4D" />
         </View>
 
-        {/* 🔍 Search Bar */}
+        {/* SEARCH */}
         <View style={styles.searchBar}>
           <Ionicons name="search" size={18} color="#999" style={{ marginRight: 6 }} />
           <TextInput
@@ -120,7 +97,7 @@ export default function MessagesScreen() {
         </View>
       </View>
 
-      {filteredChats.length === 0 ? (
+      {filteredRooms.length === 0 ? (
         <View style={styles.center}>
           <Ionicons name="chatbubbles-outline" size={60} color="#FFB3A8" />
           <Text style={styles.emptyTitle}>Hiç mesaj yok 💬</Text>
@@ -128,36 +105,37 @@ export default function MessagesScreen() {
         </View>
       ) : (
         <FlatList
-          data={filteredChats}
-          keyExtractor={(item) => item.id}
+          data={filteredRooms}
+          keyExtractor={(item) => String(item.id)}
           contentContainerStyle={{ padding: 16 }}
-          renderItem={({ item }) => (
-            <ChatCard item={item} router={router} />
-          )}
+          renderItem={({ item }) => <ChatRoomCard item={item} router={router} />}
         />
       )}
     </LinearGradient>
   );
 }
 
-function ChatCard({ item, router }) {
+function ChatRoomCard({ item, router }) {
   const [fadeAnim] = useState(new Animated.Value(0));
-  const lastMsg =
-    item.lastMessage?.text?.length > 40
-      ? item.lastMessage.text.slice(0, 40) + "..."
-      : item.lastMessage?.text || "Henüz mesaj yok";
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
       toValue: 1,
-      duration: 400,
+      duration: 350,
       useNativeDriver: true,
     }).start();
   }, []);
 
-  const time = item.lastMessageAt?.seconds
-    ? new Date(item.lastMessageAt.seconds * 1000)
-        .toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })
+  const lastMsg =
+    item.last_message?.length > 40
+      ? item.last_message.slice(0, 40) + "..."
+      : item.last_message || "Henüz mesaj yok";
+
+  const time = item.last_message_time
+    ? new Date(item.last_message_time).toLocaleTimeString("tr-TR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
     : "";
 
   return (
@@ -165,27 +143,21 @@ function ChatCard({ item, router }) {
       <TouchableOpacity
         style={styles.chatCard}
         onPress={() =>
-          router.push({
-            pathname: "/match/ChatScreen",
-            params: { chatId: item.id, otherUserId: item.otherId },
-          })
+          router.push(`/chat/${item.id}`)
         }
       >
-        <View style={styles.avatarContainer}>
-          <Image
-            source={{
-              uri:
-                item.otherUser?.photo ||
-                "https://cdn-icons-png.flaticon.com/512/847/847969.png",
-            }}
-            style={styles.avatar}
-          />
-          {item.otherUser?.isOnline && <View style={styles.onlineDot} />}
-        </View>
+        <Image
+          source={{
+            uri:
+              item.other_photo ||
+              "https://cdn-icons-png.flaticon.com/512/847/847969.png",
+          }}
+          style={styles.avatar}
+        />
 
         <View style={{ flex: 1 }}>
           <View style={styles.chatHeader}>
-            <Text style={styles.name}>{item.otherUser?.name || "Kullanıcı"}</Text>
+            <Text style={styles.name}>{item.other_username}</Text>
             <Text style={styles.time}>{time}</Text>
           </View>
           <Text style={styles.message}>{lastMsg}</Text>
@@ -195,16 +167,21 @@ function ChatCard({ item, router }) {
   );
 }
 
+// --------------------------------------
+// STYLES – IG DM vibe
+// --------------------------------------
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safeTop: { paddingHorizontal: 20 },
+
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: 6,
   },
   headerTitle: { fontSize: 22, fontWeight: "800", color: "#2C2C2C" },
+
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -212,52 +189,34 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
     elevation: 3,
     marginBottom: 12,
   },
   searchInput: { flex: 1, fontSize: 14, color: "#333" },
+
   chatCard: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#fff",
     padding: 14,
-    borderRadius: 20,
+    borderRadius: 18,
     marginBottom: 12,
-    shadowColor: "#FF6F61",
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
     elevation: 3,
   },
-  avatarContainer: { position: "relative" },
   avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     marginRight: 14,
-    backgroundColor: "#FFE9E4",
-  },
-  onlineDot: {
-    width: 12,
-    height: 12,
-    backgroundColor: "#4CD964",
-    borderRadius: 6,
-    position: "absolute",
-    right: 10,
-    bottom: 6,
-    borderWidth: 2,
-    borderColor: "#fff",
   },
   chatHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
   },
   name: { fontSize: 16, fontWeight: "700", color: "#333" },
   message: { fontSize: 13, color: "#777", marginTop: 4 },
   time: { fontSize: 11, color: "#999" },
+
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   emptyTitle: {
     fontSize: 18,
