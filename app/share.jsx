@@ -11,150 +11,132 @@ import {
   FlatList,
   ActivityIndicator,
 } from "react-native";
-import * as Location from "expo-location";
-import * as Linking from "expo-linking";
-import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system/legacy";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Camera, Upload } from "lucide-react-native";
-import { useRouter } from "expo-router";
-import { useAuth } from "../contexts/AuthContext";
+import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { storage } from "../firebase/config";
 import RestaurantPicker from "../components/RestaurantPicker";
-import HeaderGradient from "../components/HeaderGradient";
+import { useAuth } from "../contexts/AuthContext";
+import { useRouter } from "expo-router";
 
 const API_BASE = "https://yummy-backend-fxib.onrender.com";
 
 export default function AddMeal() {
   const router = useRouter();
-  const { user, setUser, refreshProfile } = useAuth();
+  const { user, setUser } = useAuth();
   const token = user?.token;
 
   const [mealName, setMealName] = useState("");
   const [categories, setCategories] = useState([]);
-  const [allergenOptions, setAllergenOptions] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(null);
+
   const [allergens, setAllergens] = useState([]);
+  const [allergenOptions, setAllergenOptions] = useState([]);
+
   const [selectedRestaurant, setSelectedRestaurant] = useState(null);
-  const [shouldNavigate, setShouldNavigate] = useState(false);
-
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  // 🔥 GLOBAL OVERLAY — YENİ EKLEDİĞİMİZ
-  const [globalLoading, setGlobalLoading] = useState(false);
 
   const [selectedImage, setSelectedImage] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // -------------------------------------------------------
-  // 🔥 KONUM İZNİ
+  // SAYFA YÜKLENİNCE
   // -------------------------------------------------------
-  const requestLocationPermission = async () => {
-    const { status, canAskAgain } =
-      await Location.requestForegroundPermissionsAsync();
-
-    if (status === "granted") return true;
-
-    if (!canAskAgain) {
-      Alert.alert(
-        "Konum Engellendi",
-        "Konum izni uygulama ayarlarından açılmalıdır.",
-        [{ text: "Ayarları Aç", onPress: () => Linking.openSettings() }]
-      );
-      return false;
-    }
-
-    Alert.alert("Konum Gerekli", "Yakındaki restoranlar için konum gerekli.");
-    return false;
-  };
-useEffect(() => {
-  if (shouldNavigate) {
-    router.replace("/(tabs)");
-  }
-}, [shouldNavigate]);
-
   useEffect(() => {
+  if (!user) {
+    router.replace("/login");
+  }
+  else {
     (async () => {
-      await requestLocationPermission();
+      await Location.requestForegroundPermissionsAsync();
       setLoading(false);
     })();
-  }, []);
 
-  // -------------------------------------------------------
-  // 🔥 KATEGORİ & ALERJENLERİ ÇEK
-  // -------------------------------------------------------
-  useEffect(() => {
     fetch(`${API_BASE}/categories`)
       .then((res) => res.json())
-      .then((data) => setCategories(data));
+      .then((data) => setCategories(data || []));
 
     fetch(`${API_BASE}/allergens`)
       .then((res) => res.json())
-      .then((data) => setAllergenOptions(data));
-  }, []);
+      .then((data) => setAllergenOptions(data || []));
+  }
+}, [user]);
 
   // -------------------------------------------------------
-  // 📸 Fotoğraf seçme
+  // FOTOĞRAF SEÇME
   // -------------------------------------------------------
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       allowsEditing: true,
-      quality: 0.7,
+      quality: 0.6,
     });
+
     if (!result.canceled) setSelectedImage(result.assets[0].uri);
   };
 
   const takePhoto = async () => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (permission.status !== "granted") {
-      Alert.alert("Kamera izni gerekli");
-      return;
-    }
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (perm.status !== "granted") return;
+
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
-      quality: 0.7,
+      quality: 0.6,
     });
+
     if (!result.canceled) setSelectedImage(result.assets[0].uri);
   };
 
   // -------------------------------------------------------
-  // 📤 Fotoğrafı backend'e yükle
+  // FIREBASE STORAGE UPLOAD
   // -------------------------------------------------------
-  async function uploadToBackend(uri) {
-    const base64 = await FileSystem.readAsStringAsync(uri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
+  async function uploadToFirebase(uri) {
+    console.log("📸 Upload başlıyor:", uri);
 
-    const filename = `meal_${Date.now()}.jpg`;
+    try {
+      const blob = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.onload = () => resolve(xhr.response);
+        xhr.onerror = (e) => reject(new TypeError("Network request failed"));
+        xhr.responseType = "blob";
+        xhr.open("GET", uri, true);
+        xhr.send(null);
+      });
 
-    const res = await fetch(`${API_BASE}/upload`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fileName: filename, base64 }),
-    });
+      const fileRef = ref(storage, `meals/${Date.now()}.jpg`);
 
-    const data = await res.json();
-    return data.url;
+      await uploadBytes(fileRef, blob);
+      const downloadURL = await getDownloadURL(fileRef);
+
+      blob.close();
+      console.log("🔗 URL:", downloadURL);
+      return downloadURL;
+    } catch (err) {
+      console.log("🔥 STORAGE DETAYLI HATA:", err);
+      throw err;
+    }
   }
 
   // -------------------------------------------------------
-  // 💾 Öğünü Kaydet — OVERLAY BURADA KULLANIYORUZ
+  // ÖĞÜNÜ KAYDET
   // -------------------------------------------------------
   const handleSaveMeal = async () => {
-    if (!mealName.trim() || !selectedCategory)
-      return Alert.alert("Eksik bilgi", "Yemek adı ve kategori zorunludur");
+    if (!mealName.trim() || !selectedCategory) {
+      return Alert.alert("Eksik bilgi", "Yemek adı ve kategori gereklidir.");
+    }
 
     try {
       setSaving(true);
-      setGlobalLoading(true); // 🔥 TAM EKRAN OVERLAY AÇ
 
-      // 📍 Kullanıcı konumu
+      // Konum
       const loc = await Location.getCurrentPositionAsync({});
       const userLocation = {
         lat: loc.coords.latitude,
         lng: loc.coords.longitude,
       };
 
-      // 📍 Restoran konumu
+      // Restoran konumu
       let restaurantLocation = null;
       if (selectedRestaurant?.geometry?.location) {
         restaurantLocation = {
@@ -163,106 +145,130 @@ useEffect(() => {
         };
       }
 
-      // 🖼 Fotoğraf upload
       let imageURL = "";
 
+      // 🔥 FOTOĞRAF FIREBASE'E YÜKLENİYOR
       if (selectedImage) {
-        imageURL = await uploadToBackend(selectedImage);
+        imageURL = await uploadToFirebase(selectedImage);
       } else {
-        const selectedCat = categories.find((c) => c.id === selectedCategory);
-        imageURL = selectedCat?.image_url || "";
+        const cat = categories.find((c) => c.id === selectedCategory);
+        imageURL = cat?.image_url || "";
       }
 
+      const body = {
+        name: mealName,
+        image_url: imageURL,
+        category: selectedCategory,
+        allergens,
+        restaurant_name: selectedRestaurant?.name || "Bilinmeyen",
+        restaurant_location: restaurantLocation,
+        user_location: userLocation,
+      };
+
+      console.log("📤 Gönderilen Body:", JSON.stringify(body, null, 2));
+
+      // BACKEND POST
       const response = await fetch(`${API_BASE}/meals`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          name: mealName,
-          image_url: imageURL,
-          category: selectedCategory,
-          allergens,
-          restaurant_name:
-            selectedRestaurant?.name || "Bilinmeyen Restoran",
-          restaurant_location: restaurantLocation,
-          user_location: userLocation,
-        }),
+        body: JSON.stringify(body),
       });
 
-      if (!response.ok) throw new Error("API error");
+      console.log("📡 RESPONSE STATUS:", response.status);
 
-      const data = await response.json();
+      // ❗ HATA DURUMUNDA BACKEND MESAJINI KULLAN
+      if (!response.ok) {
+        const text = await response.text();
+        console.log("❌ API ERROR BODY:", text);
 
-      // 🔥 USER STATE GÜNCELLE
+        try {
+          const parsed = JSON.parse(text);
+
+          if (parsed?.error) {
+            Alert.alert("Uyarı", parsed.error);
+            return;
+          }
+        } catch {}
+
+        Alert.alert("Hata", "İşlem gerçekleştirilemedi.");
+        return;
+      }
+
+      const meal = await response.json();
+
       setUser((prev) => ({
         ...prev,
-        meals: [data, ...(prev.meals || [])],
+        meals: [meal, ...(prev.meals || [])],
       }));
 
-      Alert.alert("🎉 Başarılı", "Yemeğin paylaşıldı!", [
-        {
-          text: "Tamam",
-          onPress: () => setShouldNavigate(true)
-        }
+      Alert.alert("🎉 Başarılı", "Yemeğin yayınlandı!", [
+        { text: "Tamam", onPress: () => router.replace("/(tabs)") },
       ]);
-
     } catch (err) {
-      Alert.alert("Hata", "Yemek eklenirken sorun oluştu");
+      console.log("🔥 KAYDETME HATASI:", err);
+      Alert.alert("Hata", "Yemek kaydedilemedi.");
     } finally {
       setSaving(false);
-      setGlobalLoading(false); // 🔥 OVERLAY KAPAT
     }
   };
 
-  if (loading)
+  if (loading) {
     return (
-      <View style={styles.loading}>
+      <View style={styles.center}>
         <ActivityIndicator size="large" color="#FF5C4D" />
       </View>
     );
+  }
 
+  // -------------------------------------------------------
+  // UI
+  // -------------------------------------------------------
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <HeaderGradient
-          title="Yeni Öğün Ekle"
-          subtitle="Lezzetini paylaş 🍽️"
-          align="center"
-          showAvatar={false}
-          marginTop={-50}
-        />
+      <ScrollView contentContainerStyle={{ paddingBottom: 80 }}>
+        {/* HEADER */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={26} color="#333" />
+          </TouchableOpacity>
+
+          <Text style={styles.headerTitle}>Yeni Öğün Ekle</Text>
+
+          <View style={{ width: 30 }} />
+        </View>
+
+        {/* INFO */}
+        <View style={styles.infoBox}>
+          <Text style={styles.infoText}>
+            Fotoğraf eklemezsen, seçtiğin kategorinin görseli otomatik
+            kullanılır.
+          </Text>
+        </View>
 
         {/* FOTOĞRAF */}
-        <View style={styles.imageWrapper}>
+        <View style={styles.photoWrapper}>
           {selectedImage ? (
-            <View style={styles.imagePreviewContainer}>
-              <Image
-                source={{ uri: selectedImage }}
-                style={styles.imagePreview}
-              />
-              <TouchableOpacity style={styles.replaceBtn} onPress={pickImage}>
-                <Upload size={16} color="#fff" />
-                <Text style={styles.replaceText}>Değiştir</Text>
+            <View style={styles.photoPreviewBox}>
+              <Image source={{ uri: selectedImage }} style={styles.previewImg} />
+              <TouchableOpacity style={styles.changeBtn} onPress={pickImage}>
+                <Text style={styles.changeBtnText}>Değiştir</Text>
               </TouchableOpacity>
             </View>
           ) : (
-            <View style={styles.imageUploadCard}>
-              <View style={styles.iconCircle}>
-                <Camera size={22} color="#FF5C4D" />
-              </View>
-              <Text style={styles.uploadTitle}>Görsel Ekle</Text>
+            <View style={styles.photoCard}>
+              <Ionicons name="image" size={40} color="#FF5C4D" />
+              <Text style={styles.photoCardTitle}>Görsel Ekle</Text>
 
-              <View style={styles.uploadButtons}>
-                <TouchableOpacity style={styles.uploadBtn} onPress={pickImage}>
-                  <Upload size={16} color="#FF5C4D" />
-                  <Text style={styles.uploadBtnText}>Galeriden</Text>
+              <View style={styles.photoBtns}>
+                <TouchableOpacity style={styles.photoBtn} onPress={pickImage}>
+                  <Text style={styles.photoBtnText}>Galeriden</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.uploadBtn} onPress={takePhoto}>
-                  <Camera size={16} color="#FF5C4D" />
-                  <Text style={styles.uploadBtnText}>Kameradan</Text>
+                <TouchableOpacity style={styles.photoBtn} onPress={takePhoto}>
+                  <Text style={styles.photoBtnText}>Kameradan</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -283,33 +289,25 @@ useEffect(() => {
         {/* KATEGORİ */}
         <View style={styles.card}>
           <Text style={styles.label}>Kategori</Text>
-
           <FlatList
             horizontal
             data={categories}
             showsHorizontalScrollIndicator={false}
             keyExtractor={(item) => item.id.toString()}
-            contentContainerStyle={{ gap: 14, paddingVertical: 6 }}
+            contentContainerStyle={{ gap: 14 }}
             renderItem={({ item }) => {
               const isActive = selectedCategory === item.id;
-
               return (
                 <TouchableOpacity
-                  style={[
-                    styles.categoryItem,
-                    isActive && styles.categoryItemActive,
-                  ]}
+                  style={[styles.catItem, isActive && styles.catItemActive]}
                   onPress={() => setSelectedCategory(item.id)}
                 >
                   <Image
                     source={{ uri: item.image_url }}
-                    style={styles.categoryImage}
+                    style={[styles.catImg, isActive && styles.catImgActive]}
                   />
                   <Text
-                    style={[
-                      styles.categoryName,
-                      isActive && styles.categoryNameActive,
-                    ]}
+                    style={[styles.catName, isActive && styles.catNameActive]}
                   >
                     {item.name}
                   </Text>
@@ -319,6 +317,9 @@ useEffect(() => {
           />
         </View>
 
+        {/* RESTORAN PICKER */}
+        <RestaurantPicker onSelect={(r) => setSelectedRestaurant(r)} />
+
         {/* ALERJENLER */}
         <View style={styles.card}>
           <Text style={styles.label}>Alerjenler</Text>
@@ -326,7 +327,6 @@ useEffect(() => {
           <View style={styles.allergenContainer}>
             {allergenOptions.map((a) => {
               const isActive = allergens.includes(a.name);
-
               return (
                 <TouchableOpacity
                   key={a.id}
@@ -356,115 +356,145 @@ useEffect(() => {
           </View>
         </View>
 
-        {/* RESTORAN PICKER */}
-        <RestaurantPicker onSelect={(place) => setSelectedRestaurant(place)} />
-
         {/* KAYDET */}
         <TouchableOpacity
           style={[styles.saveBtn, saving && { opacity: 0.6 }]}
           onPress={handleSaveMeal}
           disabled={saving}
         >
-          <Text style={styles.saveText}>
+          <Text style={styles.saveBtnText}>
             {saving ? "Kaydediliyor..." : "Yemeği Kaydet"}
           </Text>
         </TouchableOpacity>
       </ScrollView>
-
-      {/* 🔥 TAM EKRAN LOADING OVERLAY */}
-      {globalLoading && (
-        <View style={styles.globalOverlay}>
-          <ActivityIndicator size="large" color="#fff" />
-          <Text style={styles.overlayText}>Yükleniyor...</Text>
-        </View>
-      )}
     </SafeAreaView>
   );
 }
 
-// -------------------------------------------------------
-// S T Y L E S
-// -------------------------------------------------------
+//
+// ---------------------------------------------------------
+// STYLES
+// ---------------------------------------------------------
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#FAFAFA" },
-  scroll: { paddingBottom: 120 },
-  loading: { flex: 1, justifyContent: "center", alignItems: "center" },
+  safe: { flex: 1, backgroundColor: "#fff" },
 
-  imageWrapper: { marginTop: -80, paddingHorizontal: 20 },
-  imageUploadCard: {
+  center: { flex: 1, justifyContent: "center", alignItems: "center" },
+
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 6,
+    alignItems: "center",
+  },
+  headerTitle: { fontSize: 20, fontWeight: "800", color: "#333" },
+
+  infoBox: {
+    marginHorizontal: 20,
+    backgroundColor: "#FFF4E8",
+    padding: 12,
+    borderRadius: 12,
+    marginTop: 10,
+  },
+  infoText: {
+    color: "#B05A00",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+
+  photoWrapper: { paddingHorizontal: 20, marginTop: 20 },
+  photoCard: {
     backgroundColor: "#FFF8F7",
-    borderRadius: 20,
-    borderWidth: 1.5,
-    borderStyle: "dashed",
-    borderColor: "#FFC9C2",
-    paddingVertical: 20,
+    borderRadius: 16,
+    paddingVertical: 24,
     alignItems: "center",
   },
-  iconCircle: {
-    backgroundColor: "#FFE7E3",
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    justifyContent: "center",
-    alignItems: "center",
+  photoCardTitle: {
+    marginTop: 6,
+    fontSize: 15,
+    color: "#FF5C4D",
+    fontWeight: "700",
   },
-  uploadTitle: { color: "#FF5C4D", fontSize: 15, fontWeight: "700" },
+  photoBtns: {
+    flexDirection: "row",
+    marginTop: 14,
+    gap: 12,
+  },
 
-  uploadButtons: { flexDirection: "row", gap: 10, marginTop: 12 },
-  uploadBtn: {
-    borderWidth: 1,
-    borderColor: "#FFB6A9",
-    borderRadius: 20,
+  photoBtn: {
+    backgroundColor: "#FFE0DC",
     paddingVertical: 6,
     paddingHorizontal: 12,
-    flexDirection: "row",
-    gap: 6,
-    alignItems: "center",
-  },
-  uploadBtnText: { color: "#FF5C4D", fontWeight: "600", fontSize: 12 },
-
-  imagePreviewContainer: { alignItems: "center" },
-  imagePreview: { width: "100%", height: 220, borderRadius: 15 },
-
-  replaceBtn: {
-    position: "absolute",
-    bottom: 12,
-    right: 12,
-    backgroundColor: "#FF6B5A",
-    paddingHorizontal: 14,
-    paddingVertical: 6,
     borderRadius: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
   },
-  replaceText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  photoBtnText: {
+    color: "#FF5C4D",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+
+  photoPreviewBox: {
+    overflow: "hidden",
+    borderRadius: 16,
+    position: "relative",
+  },
+  previewImg: { width: "100%", height: 250 },
+
+  changeBtn: {
+    position: "absolute",
+    right: 10,
+    bottom: 10,
+    backgroundColor: "#FF5C4D",
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  changeBtnText: { color: "#fff", fontWeight: "700", fontSize: 11 },
 
   card: {
     backgroundColor: "#fff",
     padding: 16,
-    borderRadius: 16,
-    marginVertical: 10,
+    borderRadius: 14,
+    marginHorizontal: 20,
+    marginTop: 18,
+    elevation: 1,
   },
 
-  label: { fontWeight: "700", color: "#333", marginBottom: 8 },
+  label: { color: "#333", fontWeight: "700", marginBottom: 8 },
+
   input: {
     borderWidth: 1,
     borderColor: "#EEE",
     borderRadius: 12,
     padding: 12,
+    color: "#333",
   },
 
-  categoryItem: { alignItems: "center", width: 80 },
-  categoryItemActive: { transform: [{ scale: 1.05 }] },
-  categoryImage: { width: 60, height: 60, borderRadius: 10, borderWidth: 2 },
-  categoryName: { marginTop: 6, fontSize: 13, color: "#555" },
-  categoryNameActive: { color: "#FF5C4D", fontWeight: "700" },
+  catItem: { alignItems: "center", width: 80 },
+  catItemActive: { transform: [{ scale: 1.06 }] },
 
-  allergenContainer: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  catImg: { width: 60, height: 60, borderRadius: 10 },
+  catImgActive: { borderWidth: 2, borderColor: "#FF5C4D" },
+
+  catName: {
+    marginTop: 6,
+    fontSize: 13,
+    color: "#444",
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  catNameActive: { color: "#FF5C4D" },
+
+  allergenContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+
   allergenChip: {
     borderWidth: 1,
-    borderColor: "#DDD",
+    borderColor: "#CCC",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
@@ -473,36 +503,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#FF5C4D",
     borderColor: "#FF5C4D",
   },
-  allergenText: { color: "#444", fontSize: 13 },
-  allergenTextActive: { color: "#fff", fontWeight: "700" },
+
+  allergenText: { fontSize: 12, color: "#333" },
+  allergenTextActive: { color: "#fff" },
 
   saveBtn: {
     backgroundColor: "#FF5C4D",
-    borderRadius: 30,
+    paddingVertical: 15,
     marginHorizontal: 20,
-    paddingVertical: 14,
+    borderRadius: 30,
     alignItems: "center",
-    marginTop: 20,
+    marginTop: 25,
   },
-  saveText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-
-  // 🔥 GLOBAL LOADING OVERLAY
-  globalOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 9999,
-  },
-
-  overlayText: {
-    marginTop: 12,
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
+  saveBtnText: { color: "#fff", fontWeight: "800", fontSize: 16 },
 });

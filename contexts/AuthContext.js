@@ -11,12 +11,17 @@ import { auth } from "../firebase/config";
 const API = "https://yummy-backend-fxib.onrender.com";
 const AuthContext = createContext({});
 
+export const useAuthGuard = () => {
+  const { user } = useAuth();
+  return !!user; // true → logged in, false → logged out
+};
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // -------------------------------------------------------
-  // 🔥 Firebase Listener → user yükleme
+  // 🔥 Firebase Listener → backend profili yükleme
   // -------------------------------------------------------
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -28,17 +33,35 @@ export function AuthProvider({ children }) {
 
       const token = await firebaseUser.getIdToken();
 
-      const res = await fetch(`${API}/profile/${firebaseUser.uid}`);
-      const profile = await res.json();
+      // 🔥 Backend'den profil çek (TOKEN ZORUNLU!)
+      let res = await fetch(`${API}/profile/${firebaseUser.uid}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      let profile = await res.json();
+
+      // Eğer bulunamadıysa profil oluştur
+      if (profile?.error === "bulunamadı") {
+        const createRes = await fetch(`${API}/profile`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        profile = await createRes.json();
+      }
 
       const finalUser = {
         ...profile,
-        uid: firebaseUser.uid,      // 🚀 KRİTİK SATIR (ekledik)
+        uid: firebaseUser.uid,
         token,
       };
-      console.log('______________FINAL USER:',finalUser);
-      await AsyncStorage.setItem("yummy_user", JSON.stringify(finalUser));
+
       setUser(finalUser);
+      await AsyncStorage.setItem("yummy_user", JSON.stringify(finalUser));
 
       setLoading(false);
     });
@@ -60,7 +83,10 @@ export function AuthProvider({ children }) {
 
     const res = await fetch(`${API}/auth/register`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({
         firebase_uid: fbUser.uid,
         email,
@@ -72,7 +98,7 @@ export function AuthProvider({ children }) {
 
     const finalUser = {
       ...data.user,
-      uid: fbUser.uid,        // 🚀 Buraya da ekliyoruz
+      uid: fbUser.uid,
       token,
     };
 
@@ -96,7 +122,10 @@ export function AuthProvider({ children }) {
 
     const res = await fetch(`${API}/auth/login`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({ firebase_uid: fbUser.uid }),
     });
 
@@ -104,7 +133,7 @@ export function AuthProvider({ children }) {
 
     const finalUser = {
       ...data.user,
-      uid: fbUser.uid,        // 🚀 EKLENDİ
+      uid: fbUser.uid,
       token,
     };
 
@@ -123,22 +152,24 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  // -------------------------------------------------------
+  // 🔄 PROFİL YENİLE
+  // -------------------------------------------------------
   const refreshProfile = async () => {
-    if (!user?.uid) return;
+    if (!user?.uid || !user?.token) return;
 
     try {
-      const res = await fetch(`${API}/profile/${user.uid}`);
+      const res = await fetch(`${API}/profile/${user.uid}`, {
+        headers: {
+          Authorization: `Bearer ${user.token}`,
+        },
+      });
+
       const profile = await res.json();
 
-      const updatedUser = {
-        ...user,
-        ...profile,
-      };
-
+      const updatedUser = { ...user, ...profile };
       setUser(updatedUser);
       await AsyncStorage.setItem("yummy_user", JSON.stringify(updatedUser));
-
-      console.log("🔄 PROFİL GÜNCELLENDİ:", updatedUser);
     } catch (err) {
       console.log("PROFILE REFRESH ERROR:", err);
     }
@@ -153,7 +184,7 @@ export function AuthProvider({ children }) {
         loginWithEmail,
         registerWithEmail,
         logout,
-        refreshProfile
+        refreshProfile,
       }}
     >
       {children}

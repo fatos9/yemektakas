@@ -56,23 +56,25 @@ export default function Home() {
     try {
       const res = await fetch(api.meals);
       const data = await res.json();
-      console.log('__________________________Ana Sayfa Tüm Öğünler:',data);
-      if (!Array.isArray(data)) return;
 
+      if (!Array.isArray(data)) {
+        setMeals([]);
+        setFilteredMeals([]);
+        return;
+      }
+
+      // kendi öğünleri hariç
       const myUid = user?.uid;
-
       const others = data.filter(meal => meal.user_id !== myUid);
 
       setMeals(others);
       setFilteredMeals(others);
-
-      setLoading(false);
-      setRefreshing(false);
     } catch (err) {
       console.log("Meal alma hatası:", err);
-      setLoading(false);
     }
+    setLoading(false);
   };
+
 
   // ---------------------------------------------------
   // OKUNMAMIŞ BİLDİRİMLER
@@ -114,6 +116,10 @@ export default function Home() {
   };
 
   const handleAddMealPress = () => {
+      if (!user) {
+        router.push("/login");
+        return;
+      }
     router.push("/share");
   };
 

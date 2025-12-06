@@ -319,11 +319,10 @@ export default function MealDetail() {
             style={[
               styles.matchBtn,
               {
-                opacity:
-                  alreadySent || myMeals.length === 0 || loadingMatch ? 0.5 : 1,
+                opacity: alreadySent || loadingMatch ? 0.5 : 1
               },
             ]}
-            disabled={alreadySent || myMeals.length === 0 || loadingMatch}
+            disabled={alreadySent || loadingMatch}
             onPress={handleMatch}
           >
             {loadingMatch ? (
@@ -334,6 +333,7 @@ export default function MealDetail() {
               </Text>
             )}
           </TouchableOpacity>
+
         </View>
       ) : (
         <View style={styles.bottomBarOwner}>

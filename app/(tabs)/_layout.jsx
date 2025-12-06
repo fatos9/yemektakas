@@ -1,3 +1,5 @@
+// app/(tabs)/_layout.jsx
+
 import { Tabs } from "expo-router";
 import { View } from "react-native";
 import { Home, Map, User } from "lucide-react-native";
@@ -7,8 +9,6 @@ import { useUnreadMessages } from "../../hooks/useUnreadMessages";
 
 export default function TabsLayout() {
   const { user } = useAuth();
-
-  // ❗ Firebase UID yok artık → user.id var
   const unreadCount = useUnreadMessages(user?.id);
 
   return (
@@ -32,7 +32,7 @@ export default function TabsLayout() {
         name="index"
         options={{
           tabBarIcon: ({ color, size, focused }) => (
-            <Home size={focused ? size + 2 : size} color={color} />
+            <Home color={color} size={focused ? size + 2 : size} />
           ),
         }}
       />
@@ -40,32 +40,26 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="map"
         options={{
-          tabBarIcon: ({ color, size, focused }) => (
-            <Map size={focused ? size + 2 : size} color={color} />
-          ),
+          tabBarIcon: ({ color, size }) => <Map color={color} size={size} />,
         }}
       />
 
-      {/* Messages */}
       <Tabs.Screen
         name="messages"
         options={{
-          title: "Mesajlar",
           tabBarIcon: ({ color, size }) => (
             <View>
               <Ionicons name="chatbubble-outline" size={size} color={color} />
-
-              {/* 🔥 UNREAD BADGE */}
               {unreadCount > 0 && (
                 <View
                   style={{
                     position: "absolute",
                     top: -4,
                     right: -6,
-                    backgroundColor: "red",
                     width: 10,
                     height: 10,
                     borderRadius: 5,
+                    backgroundColor: "red",
                   }}
                 />
               )}
@@ -77,8 +71,8 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          tabBarIcon: ({ color, size, focused }) => (
-            <User size={focused ? size + 2 : size} color={color} />
+          tabBarIcon: ({ color, size }) => (
+            <User color={color} size={size} />
           ),
         }}
       />
