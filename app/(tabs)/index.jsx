@@ -116,10 +116,6 @@ export default function Home() {
   };
 
   const handleAddMealPress = () => {
-      if (!user) {
-        router.push("/login");
-        return;
-      }
     router.push("/share");
   };
 
@@ -178,7 +174,10 @@ export default function Home() {
             router.push("/match/MatchRequestsScreen");
           }}
         >
-          <Ionicons name="notifications-outline" size={26} color="#333" />
+         {user ? (
+            <Ionicons name="notifications-outline" size={26} color="#333" />
+          ) : null}
+
           {hasUnread && <View style={styles.dot} />}
         </TouchableOpacity>
       </View>

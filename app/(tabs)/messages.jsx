@@ -15,6 +15,7 @@ import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../contexts/AuthContext";
+import AuthRequired from "../../components/AuthRequired";
 
 export default function MessagesScreen() {
   const router = useRouter();
@@ -28,6 +29,7 @@ export default function MessagesScreen() {
 
   const API = "https://yummy-backend-fxib.onrender.com";
 
+  if (!user) return <AuthRequired />;
   // --------------------------------------
   // ROOMS LOAD
   // --------------------------------------

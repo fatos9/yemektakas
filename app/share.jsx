@@ -20,6 +20,7 @@ import { storage } from "../firebase/config";
 import RestaurantPicker from "../components/RestaurantPicker";
 import { useAuth } from "../contexts/AuthContext";
 import { useRouter } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
 
 const API_BASE = "https://yummy-backend-fxib.onrender.com";
 
@@ -36,19 +37,14 @@ export default function AddMeal() {
   const [allergenOptions, setAllergenOptions] = useState([]);
 
   const [selectedRestaurant, setSelectedRestaurant] = useState(null);
-
   const [selectedImage, setSelectedImage] = useState(null);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // -------------------------------------------------------
-  // SAYFA YÜKLENİNCE
+  // SAYFA YÜKLENİNCE (ARTIK LOGIN YÖNLENDİRMESİ YOK!!!)
   // -------------------------------------------------------
   useEffect(() => {
-  if (!user) {
-    router.replace("/login");
-  }
-  else {
     (async () => {
       await Location.requestForegroundPermissionsAsync();
       setLoading(false);
@@ -61,8 +57,7 @@ export default function AddMeal() {
     fetch(`${API_BASE}/allergens`)
       .then((res) => res.json())
       .then((data) => setAllergenOptions(data || []));
-  }
-}, [user]);
+  }, []);
 
   // -------------------------------------------------------
   // FOTOĞRAF SEÇME
@@ -92,28 +87,24 @@ export default function AddMeal() {
   // FIREBASE STORAGE UPLOAD
   // -------------------------------------------------------
   async function uploadToFirebase(uri) {
-    console.log("📸 Upload başlıyor:", uri);
-
     try {
       const blob = await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.onload = () => resolve(xhr.response);
-        xhr.onerror = (e) => reject(new TypeError("Network request failed"));
+        xhr.onerror = () => reject("Upload hatası");
         xhr.responseType = "blob";
         xhr.open("GET", uri, true);
         xhr.send(null);
       });
 
       const fileRef = ref(storage, `meals/${Date.now()}.jpg`);
-
       await uploadBytes(fileRef, blob);
       const downloadURL = await getDownloadURL(fileRef);
 
       blob.close();
-      console.log("🔗 URL:", downloadURL);
       return downloadURL;
     } catch (err) {
-      console.log("🔥 STORAGE DETAYLI HATA:", err);
+      console.log("🔥 STORAGE HATA:", err);
       throw err;
     }
   }
@@ -123,31 +114,20 @@ export default function AddMeal() {
   // -------------------------------------------------------
   const handleSaveMeal = async () => {
     if (!mealName.trim() || !selectedCategory) {
-      return Alert.alert("Eksik bilgi", "Yemek adı ve kategori gereklidir.");
+      return Alert.alert("Eksik bilgi", "Yemek adı ve kategori zorunlu.");
     }
 
     try {
       setSaving(true);
 
-      // Konum
       const loc = await Location.getCurrentPositionAsync({});
       const userLocation = {
         lat: loc.coords.latitude,
         lng: loc.coords.longitude,
       };
 
-      // Restoran konumu
-      let restaurantLocation = null;
-      if (selectedRestaurant?.geometry?.location) {
-        restaurantLocation = {
-          lat: selectedRestaurant.geometry.location.lat,
-          lng: selectedRestaurant.geometry.location.lng,
-        };
-      }
-
       let imageURL = "";
 
-      // 🔥 FOTOĞRAF FIREBASE'E YÜKLENİYOR
       if (selectedImage) {
         imageURL = await uploadToFirebase(selectedImage);
       } else {
@@ -161,13 +141,10 @@ export default function AddMeal() {
         category: selectedCategory,
         allergens,
         restaurant_name: selectedRestaurant?.name || "Bilinmeyen",
-        restaurant_location: restaurantLocation,
+        restaurant_location: selectedRestaurant?.geometry?.location || null,
         user_location: userLocation,
       };
 
-      console.log("📤 Gönderilen Body:", JSON.stringify(body, null, 2));
-
-      // BACKEND POST
       const response = await fetch(`${API_BASE}/meals`, {
         method: "POST",
         headers: {
@@ -177,22 +154,9 @@ export default function AddMeal() {
         body: JSON.stringify(body),
       });
 
-      console.log("📡 RESPONSE STATUS:", response.status);
-
-      // ❗ HATA DURUMUNDA BACKEND MESAJINI KULLAN
       if (!response.ok) {
-        const text = await response.text();
-        console.log("❌ API ERROR BODY:", text);
-
-        try {
-          const parsed = JSON.parse(text);
-
-          if (parsed?.error) {
-            Alert.alert("Uyarı", parsed.error);
-            return;
-          }
-        } catch {}
-
+        const errorText = await response.text();
+        console.log("❌ API ERROR:", errorText);
         Alert.alert("Hata", "İşlem gerçekleştirilemedi.");
         return;
       }
@@ -228,7 +192,7 @@ export default function AddMeal() {
   // -------------------------------------------------------
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 80 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
         {/* HEADER */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()}>
@@ -243,8 +207,7 @@ export default function AddMeal() {
         {/* INFO */}
         <View style={styles.infoBox}>
           <Text style={styles.infoText}>
-            Fotoğraf eklemezsen, seçtiğin kategorinin görseli otomatik
-            kullanılır.
+            Fotoğraf eklemezsen kategori görseli otomatik kullanılır.
           </Text>
         </View>
 
@@ -317,7 +280,7 @@ export default function AddMeal() {
           />
         </View>
 
-        {/* RESTORAN PICKER */}
+        {/* RESTORAN */}
         <RestaurantPicker onSelect={(r) => setSelectedRestaurant(r)} />
 
         {/* ALERJENLER */}
@@ -356,17 +319,46 @@ export default function AddMeal() {
           </View>
         </View>
 
-        {/* KAYDET */}
+        {/* KAYDET — USER YOKSA KİLİTLİ */}
         <TouchableOpacity
-          style={[styles.saveBtn, saving && { opacity: 0.6 }]}
-          onPress={handleSaveMeal}
-          disabled={saving}
+          style={[
+            styles.saveBtn,
+            (saving || !user) && { opacity: 0.4 },
+          ]}
+          onPress={() => {
+            if (!user) return router.push("/(auth)/login");
+            handleSaveMeal();
+          }}
+          disabled={saving || !user}
         >
           <Text style={styles.saveBtnText}>
             {saving ? "Kaydediliyor..." : "Yemeği Kaydet"}
           </Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* 🔥 LOGIN OLMAYAN KULLANICIYA ALT BANNER */}
+      {!user && (
+        <View style={styles.lockBannerWrapper}>
+          <LinearGradient
+            colors={["rgba(255,92,77,0.95)", "rgba(255,92,77,0.8)"]}
+            style={styles.lockBanner}
+          >
+            <Ionicons name="lock-closed-outline" size={22} color="#fff" />
+
+            <Text style={styles.lockText}>
+              Öğün eklemek için giriş yapmalısın
+            </Text>
+
+            <TouchableOpacity
+              style={styles.lockBtn}
+              onPress={() => router.push("/(auth)/login")}
+            >
+              <Text style={styles.lockBtnText}>Giriş Yap</Text>
+            </TouchableOpacity>
+          </LinearGradient>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -377,7 +369,6 @@ export default function AddMeal() {
 // ---------------------------------------------------------
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#fff" },
-
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
 
   header: {
@@ -397,11 +388,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginTop: 10,
   },
-  infoText: {
-    color: "#B05A00",
-    fontSize: 13,
-    fontWeight: "600",
-  },
+  infoText: { color: "#B05A00", fontSize: 13, fontWeight: "600" },
 
   photoWrapper: { paddingHorizontal: 20, marginTop: 20 },
   photoCard: {
@@ -416,12 +403,12 @@ const styles = StyleSheet.create({
     color: "#FF5C4D",
     fontWeight: "700",
   },
+
   photoBtns: {
     flexDirection: "row",
     marginTop: 14,
     gap: 12,
   },
-
   photoBtn: {
     backgroundColor: "#FFE0DC",
     paddingVertical: 6,
@@ -434,11 +421,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
-  photoPreviewBox: {
-    overflow: "hidden",
-    borderRadius: 16,
-    position: "relative",
-  },
+  photoPreviewBox: { overflow: "hidden", borderRadius: 16 },
   previewImg: { width: "100%", height: 250 },
 
   changeBtn: {
@@ -486,11 +469,7 @@ const styles = StyleSheet.create({
   },
   catNameActive: { color: "#FF5C4D" },
 
-  allergenContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
+  allergenContainer: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
 
   allergenChip: {
     borderWidth: 1,
@@ -516,4 +495,42 @@ const styles = StyleSheet.create({
     marginTop: 25,
   },
   saveBtnText: { color: "#fff", fontWeight: "800", fontSize: 16 },
+
+  // LOGIN BANNER
+  lockBannerWrapper: {
+    position: "absolute",
+    bottom: 10,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+
+  lockBanner: {
+    width: "92%",
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  lockText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "600",
+    marginLeft: 10,
+    flex: 1,
+  },
+
+  lockBtn: {
+    backgroundColor: "#fff",
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+
+  lockBtnText: {
+    color: "#FF5C4D",
+    fontWeight: "700",
+  },
 });

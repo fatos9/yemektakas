@@ -13,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../contexts/AuthContext";
 import { useRouter } from "expo-router";
 import MealCard from "../../components/MealCard";
+import AuthRequired from "../../components/AuthRequired";
 
 export default function ProfileScreen() {
   const { user, logout, loading } = useAuth();
@@ -31,27 +32,8 @@ export default function ProfileScreen() {
     );
   }
 
-  if (!user) {
-    return (
-      <View style={styles.center}>
-        <Text style={{ marginBottom: 12, color: "#333" }}>
-          Profil yüklenemedi.
-        </Text>
+  if (!user) return <AuthRequired />;
 
-        <TouchableOpacity
-          onPress={logout}
-          style={{
-            backgroundColor: "#FF5C4D",
-            paddingVertical: 10,
-            paddingHorizontal: 20,
-            borderRadius: 8,
-          }}
-        >
-          <Text style={{ color: "#fff", fontWeight: "600" }}>Çıkış Yap</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
 
   // USER → AuthContext içindeki JSON
   const meals = user?.meals || [];
