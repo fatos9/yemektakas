@@ -12,14 +12,12 @@ export default function RootLayout() {
 
     const first = segments[0];
 
-    // --- KULLANICI YOK ---
-    // Hiçbir yönlendirme yapma
-    if (!user) {
-      return;
-    }
+    // --- 1) KULLANICI YOK ---
+    // Hiçbir yönlendirme yapma → login serbest
+    if (!user) return;
 
-    // --- KULLANICI VAR ---
-    // Auth sayfasına gidiyorsa engelle
+    // --- 2) KULLANICI VAR ---
+    // Kullanıcı login sayfasına gidiyorsa engelle
     if (first === "(auth)") {
       router.replace("/(tabs)");
     }
