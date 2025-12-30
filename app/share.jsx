@@ -326,7 +326,7 @@ export default function AddMeal() {
             (saving || !user) && { opacity: 0.4 },
           ]}
           onPress={() => {
-            if (!user) return router.push("/(auth)/login");
+            // if (!user) return router.push("/(auth)/login");
             handleSaveMeal();
           }}
           disabled={saving || !user}

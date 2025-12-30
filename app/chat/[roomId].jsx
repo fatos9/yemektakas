@@ -9,101 +9,107 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
   ActivityIndicator,
   Image,
 } from "react-native";
-import { useAuth } from "../../contexts/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
+import { useAuth } from "../../contexts/AuthContext";
+import { getFreshToken } from "../../utils/getFreshToken";
 
 export default function ChatScreen() {
   const { roomId } = useLocalSearchParams();
+  const numericRoomId = Number(roomId);
+
   const { user } = useAuth();
   const router = useRouter();
   const flatListRef = useRef(null);
 
+  // ✅ STATE'LER (EKSİKSİZ)
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
-  const [locked, setLocked] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [locked, setLocked] = useState(false);
   const [otherUser, setOtherUser] = useState(null);
   const [error, setError] = useState(null);
 
   const API = "https://yummy-backend-fxib.onrender.com";
 
-  const quickReplies = [
-    "Merhaba 👋",
-    "Neredesiniz?",
-    "Teslim için müsait misiniz?",
-    "Ben geldim :)",
-    "5 dakika gecikeceğim",
-  ];
-
+  // --------------------------------------------------
+  // 📥 CHAT ROOM YÜKLE
+  // --------------------------------------------------
   const loadRoom = async () => {
-    setError(null);
-    console.log(`${API}/chat/room/${roomId}`);
     try {
-      const res = await fetch(`${API}/room/${roomId}`, {
-        headers: { Authorization: `Bearer ${user.token}` },
+      setLoading(true);
+      setError(null);
+
+      const token = await getFreshToken();
+
+      const res = await fetch(`${API}/chat/room/${numericRoomId}`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       const data = await res.json();
-      console.log("ROOM DATA:", data);
 
       if (!data.room) {
-        setError("Sohbet yüklenemedi.");
+        setError("Sohbet bulunamadı.");
         return;
       }
 
-      setLocked(data.locked);
       setMessages(data.messages || []);
+      setLocked(Boolean(data.locked));
 
-      // DİĞER KULLANICI ID
+      // 👤 KARŞI TARAF
       const otherId =
         data.room.user1_id === user.uid
           ? data.room.user2_id
           : data.room.user1_id;
 
-      const U = await fetch(`${API}/auth/user/${otherId}`, {
-        headers: { Authorization: `Bearer ${user.token}` },
+      const uRes = await fetch(`${API}/auth/user/${otherId}`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
 
-      const userData = await U.json();
-      setOtherUser(userData);
+      const uData = await uRes.json();
+      setOtherUser(uData);
 
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: false });
-      }, 80);
+      }, 100);
     } catch (err) {
       console.log("CHAT LOAD ERROR:", err);
-      setError("Sunucuya bağlanırken bir hata oluştu.");
+      setError("Sohbet yüklenemedi.");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    if (!numericRoomId || !user?.uid) return;
     loadRoom();
-  }, [roomId]);
+  }, [numericRoomId]);
 
+  // --------------------------------------------------
+  // ✉️ MESAJ GÖNDER
+  // --------------------------------------------------
   const sendMessage = async () => {
     if (!text.trim() || locked) return;
 
     try {
+      const token = await getFreshToken();
+
       const res = await fetch(`${API}/chat/send`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${user.token}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          room_id: roomId,
-          message: text,
+          room_id: numericRoomId,
+          message: text.trim(),
         }),
       });
 
       const data = await res.json();
-      if (!data.id) return;
+      if (!data?.id) return;
 
       setMessages((prev) => [...prev, data]);
       setText("");
@@ -116,23 +122,9 @@ export default function ChatScreen() {
     }
   };
 
-  const renderMessage = ({ item }) => {
-    const isMe = item.sender_id === user.uid;
-
-    return (
-      <View
-        style={[
-          styles.messageBubble,
-          isMe ? styles.myBubble : styles.otherBubble,
-        ]}
-      >
-        <Text style={[styles.messageText, isMe && styles.myMessageText]}>
-          {item.message}
-        </Text>
-      </View>
-    );
-  };
-
+  // --------------------------------------------------
+  // ⏳ LOADING / ERROR
+  // --------------------------------------------------
   if (loading) {
     return (
       <View style={styles.center}>
@@ -144,73 +136,88 @@ export default function ChatScreen() {
   if (error) {
     return (
       <View style={styles.center}>
-        <Text style={{ color: "#FF5C4D", fontSize: 16 }}>{error}</Text>
-        <TouchableOpacity style={styles.tryBtn} onPress={loadRoom}>
-          <Text style={{ color: "#fff", fontWeight: "700" }}>Tekrar Dene</Text>
-        </TouchableOpacity>
+        <Text style={{ color: "#FF5C4D" }}>{error}</Text>
       </View>
     );
   }
 
+  // --------------------------------------------------
+  // 🟢 UI
+  // --------------------------------------------------
   return (
     <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
+      {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={28} color="#fff" />
+          <Ionicons name="chevron-back" size={26} color="#fff" />
         </TouchableOpacity>
 
-        <View style={styles.headerUser}>
-          <Image
-            source={{
-              uri:
-                otherUser?.photo_url ||
-                "https://cdn-icons-png.flaticon.com/512/847/847969.png",
-            }}
-            style={styles.headerAvatar}
-          />
-          <Text style={styles.headerName}>
-            {otherUser?.username || "Kullanıcı"}
-          </Text>
+        <Text style={styles.headerName}>
+          {otherUser?.username || "Kullanıcı"}
+        </Text>
+      </View>
+
+      {/* 🍱 ÖĞÜN KARTLARI */}
+      <View style={styles.mealRow}>
+        <View style={styles.mealCard}>
+          <Text style={styles.mealTitle}>🍱 Senin Öğünün</Text>
+          <Text style={styles.mealText}>—</Text>
+        </View>
+        <View style={styles.mealCard}>
+          <Text style={styles.mealTitle}>🍲 Karşı Taraf</Text>
+          <Text style={styles.mealText}>—</Text>
         </View>
       </View>
 
+      {/* 💬 MESAJLAR */}
       <FlatList
         ref={flatListRef}
         data={messages}
-        keyExtractor={(item) => `${item.id}`}
-        renderItem={renderMessage}
-        contentContainerStyle={{ padding: 16 }}
+        keyExtractor={(i) => String(i.id)}
+        contentContainerStyle={{
+          padding: 16,
+          flexGrow: messages.length === 0 ? 1 : undefined,
+          justifyContent: messages.length === 0 ? "center" : "flex-start",
+        }}
+        ListEmptyComponent={
+          <Text style={{ textAlign: "center", color: "#999" }}>
+            Henüz mesaj yok. Sohbeti başlat 👋
+          </Text>
+        }
+        renderItem={({ item }) => (
+          <View
+            style={[
+              styles.bubble,
+              item.sender_id === user.uid
+                ? styles.myBubble
+                : styles.otherBubble,
+            ]}
+          >
+            <Text
+              style={{
+                color: item.sender_id === user.uid ? "#fff" : "#333",
+              }}
+            >
+              {item.message}
+            </Text>
+          </View>
+        )}
       />
 
+      {/* ✍️ INPUT – KLAVYE ÜSTÜNDE */}
       {!locked && (
-        <View style={styles.quickReplyContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {quickReplies.map((msg, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.quickReply}
-                onPress={() => setText(msg)}
-              >
-                <Text style={styles.quickReplyText}>{msg}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
-
-      {!locked && (
-        <View style={styles.inputContainer}>
+        <View style={styles.inputRow}>
           <TextInput
-            placeholder="Mesaj yaz..."
             value={text}
             onChangeText={setText}
+            placeholder="Mesaj yaz..."
             style={styles.input}
           />
-
-          <TouchableOpacity style={styles.sendBtn} onPress={sendMessage}>
+          <TouchableOpacity onPress={sendMessage} style={styles.sendBtn}>
             <Ionicons name="send" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -219,87 +226,70 @@ export default function ChatScreen() {
   );
 }
 
+// --------------------------------------------------
+// 🎨 STYLES
+// --------------------------------------------------
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  tryBtn: {
-    marginTop: 12,
-    backgroundColor: "#FF5C4D",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
 
   header: {
     backgroundColor: "#FF5C4D",
     paddingTop: 45,
     paddingBottom: 12,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
   },
-  headerUser: { flexDirection: "row", alignItems: "center", gap: 10 },
-  headerAvatar: { width: 34, height: 34, borderRadius: 17 },
   headerName: { color: "#fff", fontSize: 17, fontWeight: "700" },
 
-  messageBubble: {
+  mealRow: {
+    flexDirection: "row",
+    gap: 10,
+    padding: 10,
+    backgroundColor: "#FFF5F3",
+  },
+  mealCard: {
+    flex: 1,
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    padding: 10,
+  },
+  mealTitle: { fontSize: 12, color: "#FF5C4D", fontWeight: "700" },
+  mealText: { fontSize: 13, marginTop: 4 },
+
+  bubble: {
     maxWidth: "75%",
-    padding: 12,
-    borderRadius: 16,
-    marginVertical: 6,
+    padding: 10,
+    borderRadius: 14,
+    marginVertical: 4,
   },
   myBubble: {
     backgroundColor: "#FF5C4D",
     alignSelf: "flex-end",
-    borderBottomRightRadius: 4,
   },
   otherBubble: {
-    backgroundColor: "#F0F0F0",
+    backgroundColor: "#EDEDED",
     alignSelf: "flex-start",
-    borderBottomLeftRadius: 4,
   },
-  messageText: { fontSize: 15, color: "#333" },
-  myMessageText: { color: "#fff", fontWeight: "600" },
 
-  quickReplyContainer: {
-    borderTopWidth: 1,
-    borderColor: "#eee",
-    backgroundColor: "#fff",
-    paddingVertical: 4,
-    paddingLeft: 6,
-    height: 42,
-    justifyContent: "center",
-  },
-  quickReply: {
-    backgroundColor: "#FFE5E2",
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 18,
-    marginRight: 10,
-  },
-  quickReplyText: { color: "#FF5C4D", fontWeight: "600" },
-
-  inputContainer: {
+  inputRow: {
     flexDirection: "row",
-    alignItems: "center",
-    padding: 12,
+    padding: 10,
     borderTopWidth: 1,
     borderColor: "#eee",
     backgroundColor: "#fff",
   },
   input: {
     flex: 1,
-    backgroundColor: "#F3F3F3",
+    backgroundColor: "#F2F2F2",
+    borderRadius: 20,
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 22,
-    fontSize: 14,
   },
   sendBtn: {
     backgroundColor: "#FF5C4D",
+    marginLeft: 8,
     padding: 12,
-    borderRadius: 26,
-    marginLeft: 10,
+    borderRadius: 24,
   },
 });

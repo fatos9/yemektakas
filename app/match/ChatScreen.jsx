@@ -1,133 +1,46 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import {
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
   FlatList,
+  TouchableOpacity,
+  Image,
   StyleSheet,
   ActivityIndicator,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-export default function ChatScreen() {
-  const { roomId } = useLocalSearchParams();   // 🔥 artık chatId değil roomId
+export default function ChatList() {
   const { user } = useAuth();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
-
-  const [otherUser, setOtherUser] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [isLocked, setIsLocked] = useState(false);
-  const [text, setText] = useState("");
+  const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const flatListRef = useRef(null);
   const API = "https://yummy-backend-fxib.onrender.com";
 
-  /* ------------------------------------------------
-      1) Chat Odası Bilgisi + Diğer Kullanıcı Bilgisi
-  ------------------------------------------------ */
   useEffect(() => {
-    const loadRoom = async () => {
+    if (!user?.token) return;
+
+    const loadRooms = async () => {
       try {
-        const res = await fetch(`${API}/chat/room/${roomId}`, {
-          headers: { Authorization: `Bearer ${user.token}` },
+        const res = await fetch(`${API}/chat/rooms`, {
+          headers: {
+            Authorization: `Bearer ${user.token}`,
+          },
         });
 
         const data = await res.json();
-
-        if (data.error === "Bu sohbet kapanmış.") {
-          setIsLocked(true);
-        }
-
-        setMessages(data || []);
-
-        // En aşağı kaydır
-        setTimeout(() => {
-          flatListRef.current?.scrollToEnd({ animated: false });
-        }, 100);
-
-        // Diğer kullanıcıyı bul
-        if (data.length > 0) {
-          const firstMsg = data[0];
-          const otherId =
-            firstMsg.sender_id === user.uid
-              ? firstMsg.receiver_id
-              : firstMsg.sender_id;
-
-          fetch(`${API}/users/${otherId}`)
-            .then((r) => r.json())
-            .then((d) => setOtherUser(d));
-        }
+        setRooms(Array.isArray(data) ? data : []);
       } catch (err) {
-        console.log("CHAT LOAD ERROR:", err);
+        console.log("CHAT LIST ERROR:", err);
       } finally {
         setLoading(false);
       }
     };
 
-    loadRoom();
-  }, [roomId]);
-
-  /* ------------------------------------------------
-      2) Mesaj Gönder
-  ------------------------------------------------ */
-  const sendMessage = async () => {
-    if (!text.trim() || isLocked) return;
-
-    try {
-      const res = await fetch(`${API}/chat/send`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${user.token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          room_id: roomId,
-          message: text,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (data.error === "Bu sohbet kapanmış. Mesaj gönderemezsin.") {
-        setIsLocked(true);
-        return;
-      }
-
-      // Anlık UI ekle
-      setMessages((prev) => [...prev, data]);
-      setText("");
-
-      // Scroll
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 120);
-    } catch (err) {
-      console.log("SEND MESSAGE ERROR:", err);
-    }
-  };
-
-  const renderMessage = ({ item }) => {
-    const isMe = item.sender_id === user.uid;
-
-    return (
-      <View
-        style={[
-          styles.messageBubble,
-          isMe ? styles.myMessage : styles.theirMessage,
-        ]}
-      >
-        <Text style={[styles.messageText, isMe && { color: "#fff" }]}>
-          {item.message}
-        </Text>
-      </View>
-    );
-  };
+    loadRooms();
+  }, [user?.token]);
 
   if (loading) {
     return (
@@ -137,124 +50,72 @@ export default function ChatScreen() {
     );
   }
 
-  return (
-    <View style={styles.container}>
-      {/* 🔥 HEADER */}
-      <View style={[styles.header, { paddingTop: insets.top + 5 }]}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={26} color="#fff" />
-        </TouchableOpacity>
-
-        <View>
-          <Text style={styles.headerName}>
-            {otherUser?.username || "Kullanıcı"}
-          </Text>
-          <Text style={styles.headerSub}>Sohbet</Text>
-        </View>
+  if (rooms.length === 0) {
+    return (
+      <View style={styles.center}>
+        <Text>Henüz bir sohbetin yok.</Text>
       </View>
+    );
+  }
 
-      {/* 🔥 MESAJ LİSTESİ */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={(item) => String(item.id)}
-        renderItem={renderMessage}
-        contentContainerStyle={{ padding: 16 }}
-      />
-
-      {/* 🔥 SOHBET KİLİTLİYSE UYARI */}
-      {isLocked && (
-        <View style={styles.lockBanner}>
-          <Text style={styles.lockText}>Bu sohbet sona erdi.</Text>
-        </View>
-      )}
-
-      {/* 🔥 MESAJ GÖNDERME ALANI */}
-      {!isLocked && (
-        <View style={styles.inputRow}>
-          <TextInput
-            placeholder="Mesaj yaz..."
-            value={text}
-            onChangeText={setText}
-            style={styles.input}
+  return (
+    <FlatList
+      data={rooms}
+      keyExtractor={(item) => String(item.room_id)}
+      renderItem={({ item }) => (
+        <TouchableOpacity
+          style={styles.room}
+          onPress={() => router.push(`/chat/${item.room_id}`)}
+        >
+          <Image
+            source={{
+              uri:
+                item.photo_url ||
+                "https://cdn-icons-png.flaticon.com/512/847/847969.png",
+            }}
+            style={styles.avatar}
           />
 
-          <TouchableOpacity onPress={sendMessage} style={styles.sendBtn}>
-            <Ionicons name="send" size={20} color="#fff" />
-          </TouchableOpacity>
-        </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.username}>{item.username}</Text>
+            <Text style={styles.lastMessage} numberOfLines={1}>
+              {item.last_message || "Henüz mesaj yok"}
+            </Text>
+          </View>
+        </TouchableOpacity>
       )}
-    </View>
+    />
   );
 }
 
-/* ------------------------------------------------
-      STYLES
------------------------------------------------- */
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F9F9F9" },
-
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
 
-  header: {
+  room: {
     flexDirection: "row",
+    padding: 14,
+    borderBottomWidth: 1,
+    borderColor: "#eee",
     alignItems: "center",
-    backgroundColor: "#FF5C4D",
-    paddingHorizontal: 14,
-    paddingBottom: 12,
     gap: 12,
-  },
-  headerName: { fontSize: 18, fontWeight: "700", color: "#fff" },
-  headerSub: { fontSize: 13, color: "#FFE6E3" },
-
-  messageBubble: {
-    maxWidth: "75%",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 16,
-    marginVertical: 4,
-  },
-  myMessage: {
-    backgroundColor: "#FF5C4D",
-    alignSelf: "flex-end",
-  },
-  theirMessage: {
-    backgroundColor: "#EDEDED",
-    alignSelf: "flex-start",
-  },
-  messageText: {
-    color: "#222",
-  },
-
-  lockBanner: {
-    backgroundColor: "#FFE2DF",
-    padding: 12,
-    alignItems: "center",
-  },
-  lockText: {
-    color: "#FF5C4D",
-    fontWeight: "700",
-  },
-
-  inputRow: {
-    flexDirection: "row",
     backgroundColor: "#fff",
-    padding: 12,
-    borderTopWidth: 1,
-    borderColor: "#EEE",
-    alignItems: "center",
   },
-  input: {
-    flex: 1,
-    backgroundColor: "#F2F2F2",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
-    marginRight: 10,
+
+  avatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
   },
-  sendBtn: {
-    backgroundColor: "#FF5C4D",
-    padding: 12,
-    borderRadius: 50,
+
+  username: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#333",
+  },
+
+  lastMessage: {
+    fontSize: 14,
+    color: "#777",
+    marginTop: 2,
   },
 });

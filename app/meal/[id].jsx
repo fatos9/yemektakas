@@ -30,10 +30,13 @@ export default function MealDetail() {
   const isFromNotification = !!requestId;
   const API = "https://yummy-backend-fxib.onrender.com";
 
-  const myMeals = user?.meals || [];
+  /* SAFE USER VALUES */
+  const myUid = user?.uid ?? null;
+  const myMeals = Array.isArray(user?.meals) ? user.meals : [];
+  const isOwner = myUid && meal?.user_id === myUid;
 
   /* ---------------------------------------------
-    1) ÖĞÜN DETAYI
+      1) ÖĞÜN DETAYI
   --------------------------------------------- */
   useEffect(() => {
     const fetchDetail = async () => {
@@ -59,7 +62,7 @@ export default function MealDetail() {
   }, [id]);
 
   /* ---------------------------------------------
-    2) MATCH GÖNDERİLMİŞ Mİ KONTROL
+      2) MATCH GÖNDERİLMİŞ Mİ KONTROL
   --------------------------------------------- */
   useEffect(() => {
     if (!meal || !user || isFromNotification) return;
@@ -88,9 +91,17 @@ export default function MealDetail() {
   }, [meal, user, isFromNotification]);
 
   /* ---------------------------------------------
-    3) MATCH GÖNDER
+      3) EŞLEŞME İSTEĞİ GÖNDER
   --------------------------------------------- */
   const handleMatch = async () => {
+    if (!user) {
+      Alert.alert("Giriş gerekli", "Eşleşme isteği göndermek için giriş yapmalısın.");
+      return;
+    }
+    console.log("USER OBJ:", user);
+    const token = await user?.getIdToken?.();
+console.log("TOKEN:", token);
+
     if (myMeals.length === 0) {
       Alert.alert("Öğün Eklenmedi", "Önce bir öğün eklemen gerekiyor.");
       return;
@@ -98,6 +109,7 @@ export default function MealDetail() {
 
     setLoadingMatch(true);
     setGlobalLoading(true);
+// console.log("🔥 MATCH SEND HIT", req.user?.uid, req.body);
 
     try {
       const res = await fetch(`${API}/match/send`, {
@@ -113,6 +125,8 @@ export default function MealDetail() {
       });
 
       const data = await res.json();
+console.log("STATUS:", res.status);
+console.log("RESPONSE:", data);
 
       if (data.message === "Zaten istek gönderilmiş") {
         Alert.alert("Bilgi", "Zaten istek göndermişsin.");
@@ -130,10 +144,14 @@ export default function MealDetail() {
   };
 
   /* ---------------------------------------------
-    4) İSTEĞİ KABUL ET
-    ACCEPT → match + chat_room döner
+      4) İSTEĞİ KABUL ET
   --------------------------------------------- */
   const handleAccept = async () => {
+    if (!user) {
+      Alert.alert("Giriş gerekli", "Bu işlem için giriş yapmalısın.");
+      return;
+    }
+
     try {
       setGlobalLoading(true);
 
@@ -147,8 +165,9 @@ export default function MealDetail() {
       });
 
       const data = await res.json();
-      console.log('Accept Sonrası:',data);
-     if (data.room?.id) {
+      console.log("Accept Sonrası:", data);
+
+      if (data.room?.id) {
         Alert.alert("Eşleşme Açıldı", "Artık sohbet edebilirsiniz!", [
           {
             text: "Sohbete Git",
@@ -166,9 +185,14 @@ export default function MealDetail() {
   };
 
   /* ---------------------------------------------
-    5) İSTEĞİ REDDET
+      5) REDDET
   --------------------------------------------- */
   const handleReject = async () => {
+    if (!user) {
+      Alert.alert("Giriş gerekli", "Bu işlem için giriş yapmalısın.");
+      return;
+    }
+
     try {
       setGlobalLoading(true);
 
@@ -190,9 +214,14 @@ export default function MealDetail() {
   };
 
   /* ---------------------------------------------
-    6) ÖĞÜN SİL / DÜZENLE
+      6) SİL
   --------------------------------------------- */
   const handleDelete = () => {
+    if (!user) {
+      Alert.alert("Giriş gerekli", "Bu işlem için giriş yapmalısın.");
+      return;
+    }
+
     Alert.alert("Onay", "Bu öğünü silmek istiyor musun?", [
       { text: "İptal", style: "cancel" },
       {
@@ -235,11 +264,8 @@ export default function MealDetail() {
       </View>
     );
 
-  const isOwner = meal.user_id === user.uid;
-
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
-      
       <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
         <Ionicons name="arrow-back" size={24} color="#fff" />
       </TouchableOpacity>
@@ -269,7 +295,7 @@ export default function MealDetail() {
 
         <Text style={styles.sectionTitle}>Konum</Text>
 
-        <MapView
+        {/* <MapView
           style={styles.map}
           initialRegion={{
             latitude: meal.restaurant_location.lat,
@@ -286,7 +312,7 @@ export default function MealDetail() {
               longitude: meal.restaurant_location.lng,
             }}
           />
-        </MapView>
+        </MapView> */}
 
         <Text style={styles.sectionTitle}>Alerjenler</Text>
         <View style={styles.allergenList}>
@@ -319,7 +345,7 @@ export default function MealDetail() {
             style={[
               styles.matchBtn,
               {
-                opacity: alreadySent || loadingMatch ? 0.5 : 1
+                opacity: alreadySent || loadingMatch ? 0.5 : 1,
               },
             ]}
             disabled={alreadySent || loadingMatch}
@@ -333,7 +359,6 @@ export default function MealDetail() {
               </Text>
             )}
           </TouchableOpacity>
-
         </View>
       ) : (
         <View style={styles.bottomBarOwner}>
@@ -400,9 +425,6 @@ const styles = StyleSheet.create({
 
   mealName: { fontSize: 24, fontWeight: "700", color: "#333" },
   restaurant: { fontSize: 16, color: "#777", marginTop: 4 },
-
-  row: { flexDirection: "row", alignItems: "center", marginTop: 6, gap: 4 },
-  rating: { fontSize: 15, color: "#444", fontWeight: "600" },
 
   userBox: {
     flexDirection: "row",

@@ -1,15 +1,14 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
+// firebase/config.js
+
+import { initializeApp, getApps } from "firebase/app";
 import {
-  getAuth,
   initializeAuth,
   getReactNativePersistence,
 } from "firebase/auth";
-import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
-// -----------------------------------------------------------
-// 🔥 Firebase Config
-// -----------------------------------------------------------
 const firebaseConfig = {
   apiKey: "AIzaSyD0Hl5os66_FRth1BWQkDUEE57oJ3F25v4",
   authDomain: "yummyum-e6f8f.firebaseapp.com",
@@ -19,26 +18,22 @@ const firebaseConfig = {
   appId: "1:888477688304:web:324b11b2449cd5f93efd35",
 };
 
-// -----------------------------------------------------------
-// 🔥 App başlat — idempotent (bir kere çalışır)
-// -----------------------------------------------------------
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+// ❗ Eğer zaten init edilmişse tekrar init ETME
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
 
-// -----------------------------------------------------------
-// 🔐 AUTH — tekrar initialize edilmesin diye koruma bloğu
-// -----------------------------------------------------------
+// AUTH — tekrar initialize edilmesin diye kontrol
 let auth;
-try {
-  auth = getAuth(app); // Eğer Auth zaten varsa bunu kullan
-} catch (e) {
+if (!app._auth) {
   auth = initializeAuth(app, {
-    persistence: getReactNativePersistence(ReactNativeAsyncStorage),
+    persistence: getReactNativePersistence(AsyncStorage),
   });
+  app._auth = auth;
+} else {
+  auth = app._auth;
 }
 
-// -----------------------------------------------------------
-// 📦 STORAGE
-// -----------------------------------------------------------
+// DB + STORAGE
+const db = getFirestore(app);
 const storage = getStorage(app);
 
-export { app, auth, storage };
+export { app, auth, db, storage };

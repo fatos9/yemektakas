@@ -145,7 +145,7 @@ function ChatRoomCard({ item, router }) {
       <TouchableOpacity
         style={styles.chatCard}
         onPress={() =>
-          router.push(`/chat/${item.id}`)
+          router.push(`/chat/${item.room_id}`)
         }
       >
         <Image
